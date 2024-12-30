@@ -1,16 +1,24 @@
-# This is a sample Python script.
-
-# Press ⌃R to execute it or replace it with your code.
-# Press Double ⇧ to search everywhere for classes, files, tool windows, actions, and settings.
-
-
-def print_hi(name):
-    # Use a breakpoint in the code line below to debug your script.
-    print(f'Hi, {name}')  # Press ⌘F8 to toggle the breakpoint.
+from src.controller import InsuranceAnalysisController
+from src.dataloader import DataLoader
+from src.ratios import InsuranceRatios
 
 
-# Press the green button in the gutter to run the script.
+def main():
+
+    data_type = "quarterly"
+    include_reinsurers = False
+    reduction_method = "autoencoder"
+    data = DataLoader(data_type=data_type, include_reinsurers=include_reinsurers)
+
+    ratios_data = InsuranceRatios(data=data.medical_data,
+                                  include_reinsurers=include_reinsurers)
+
+    analysis_controller = InsuranceAnalysisController(data=ratios_data,
+                                                      data_type=data_type,
+                                                      labels=data.labels,
+                                                      include_reinsurers=include_reinsurers)
+    analysis_controller.run_analysis(reduction_method=reduction_method)
+
+
 if __name__ == '__main__':
-    print_hi('PyCharm')
-
-# See PyCharm help at https://www.jetbrains.com/help/pycharm/
+    main()
