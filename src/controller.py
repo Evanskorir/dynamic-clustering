@@ -3,6 +3,7 @@ import numpy as np
 from src.clustering_technique.dynamic_time_warping import DTWClustering
 from src.dimension_reduction.autoencoder import Autoencoder
 from src.dimension_reduction.pca import Pca
+from src.dimension_reduction.lstm import LSTMFeatureFusion
 from src.distance_matrix import RatiosPairwiseDistance
 from src.plotter import Plotter
 from src.ratios import InsuranceRatios
@@ -25,6 +26,7 @@ class InsuranceAnalysisController:
         self.scaled_ratios_data = None
         self.distance_mtx = None
         self.autoencoder = None
+        self.lstm_fusion = None
         self.reconstruction_errors = None
 
         self.clusters = None
@@ -32,16 +34,12 @@ class InsuranceAnalysisController:
         self.plotter = None
 
     def load_data(self):
-        """
-        Preprocesses raw insurance data into padded time-series format.
-        """
         max_len = max(len(series) for series in self.data_loader.ratios_data.values())
         self.time_series_data = np.array([
             np.pad(series, ((0, max_len - len(series)), (0, 0)), mode='constant',
                    constant_values=0)
             for series in self.data_loader.ratios_data.values()
         ])
-
         self.companies = list(self.data_loader.ratios_data.keys())
 
     def scale_the_data(self):
@@ -51,14 +49,11 @@ class InsuranceAnalysisController:
         self.scaled_ratios_data = scaled_ratios_data.scaled_ratios_data
 
     def apply_dimensionality_reduction(self, method: str = "autoencoder"):
-        """
-        Apply dimensionality reduction using the specified method (Autoencoder or PCA).
-        """
         if method.lower() == "autoencoder":
             print("Applying Autoencoder for dimensionality reduction...")
             self.autoencoder = Autoencoder(
                 scaled_ratios_data=self.scaled_ratios_data,
-                encoding_dim=2,  # size of dim reduced
+                encoding_dim=2,
                 random_state=42
             )
             self.autoencoder.build_autoencoder()
@@ -70,15 +65,22 @@ class InsuranceAnalysisController:
             pca = Pca(scaled_ratios_data=self.scaled_ratios_data)
             pca.PCA_apply(n_components=2)
             self.reduced_time_series_data = pca.reduced_data
-            print("pca data", self.reduced_time_series_data.shape)
 
+        elif method.lower() == "lstm":
+            print("Applying LSTM Feature Fusion for dimensionality reduction...")
+            self.lstm_fusion = LSTMFeatureFusion(
+                scaled_ratios_data=self.scaled_ratios_data,
+                lstm_units=64,
+                dropout_rate=0.2,
+                random_state=42
+            )
+            self.lstm_fusion.build_lstm_model()
+            self.lstm_fusion.train_lstm_model(epochs=12, batch_size=16)
+            self.reduced_time_series_data = self.lstm_fusion.apply_lstm_model()
         else:
             raise ValueError(f"Unsupported dimensionality reduction method: {method}")
 
     def save_reconstruction_data(self):
-        """
-        Computes and saves reconstruction data and errors to files.
-        """
         print("Calculating and saving reconstruction data...")
         error_reconstruction = ErrorReconstruction(
             scaled_ratios_data=self.scaled_ratios_data,
@@ -99,33 +101,21 @@ class InsuranceAnalysisController:
             self.distance_mtx = dist_mtx.ratio_distance_matrices
 
     def perform_clustering(self, n_clusters: int = 4):
-        """
-        Perform clustering using KMeans clustering.
-        :param n_clusters: Number of clusters for clustering algorithms that require this parameter.
-        """
         print(f"Performing KMeans clustering on reduced data...")
-
         dtw_cluster = DTWClustering(
-            reduced_time_series_data=self.reduced_time_series_data,  # Use dimensionality reduced data
+            reduced_time_series_data=self.reduced_time_series_data,
             random_seed=42
         )
-
-        # Perform clustering based on the selected method
         dtw_cluster.perform_clustering(n_clusters=n_clusters)
         self.dtw_cluster = dtw_cluster
         self.clusters = dtw_cluster.get_cluster_assignments()
 
-        # Group companies by cluster labels
         cluster_groups = {}
         for idx, cluster in enumerate(self.clusters):
             cluster_groups.setdefault(cluster, []).append(self.companies[idx])
 
-        # Print the company groups per cluster
         for cluster, members in cluster_groups.items():
             print(f"Cluster {cluster + 1}: {members}")
-
-        cluster_centers = self.dtw_cluster.get_cluster_centers()
-        print(f"Cluster centers shape (DTW Clustering): {cluster_centers.shape}")
 
     def get_evaluation_plot(self, evaluation_criteria):
         # Map evaluation criteria to the corresponding plotter methods
@@ -168,6 +158,7 @@ class InsuranceAnalysisController:
         # Step 4: Plot variables (Gross Premium Income, Claims Paid,
         # Claims Incurred, Underwriting Profits etc.)
         print("Plotting variables...")
+        self.plotter.plot_time_series_heatmap(self.reduced_time_series_data)
         self.plotter.plot_variable_split(0, "Market Share")
         self.plotter.plot_variable_split(1, "Claims Paid Ratio")
         self.plotter.plot_variable_split(2, "Claims Incurred Ratio")
@@ -177,9 +168,6 @@ class InsuranceAnalysisController:
         self.plotter.plot_variable_split(6, "Claims Payout Ratio")
 
     def run_analysis(self, reduction_method):
-        """
-        Run the complete analysis pipeline.
-        """
         # Step 1: Load and Scale Data
         self.load_data()
         self.scale_the_data()
@@ -201,13 +189,17 @@ class InsuranceAnalysisController:
         # Step 6: Get Evaluation Plot
         self.get_evaluation_plot(evaluation_criteria="elbow")
 
-        # Step 7: Plot 2D Dimensionality Reduction
-        self.plotter.plot_2d_dimension_reduction(company_names=self.companies,
-                                                 method=reduction_method)
+        # Step 7 & 8: Plot 2D Dimensionality Reduction and Autoencoder-Specific Actions
+        if reduction_method in ["autoencoder", "pca"]:
+            self.plotter.plot_2d_dimension_reduction(company_names=self.companies,
+                                                     method=reduction_method)
 
-        # Step 9: Autoencoder-Specific Actions
-        if reduction_method == "autoencoder":
-            self.save_reconstruction_data()
-            self.plotter.plot_reconstruction_error(
-                reconstruction_errors=self.reconstruction_errors)
+            if reduction_method == "autoencoder":
+                self.save_reconstruction_data()
+                self.plotter.plot_reconstruction_error(
+                    reconstruction_errors=self.reconstruction_errors)
+
+
+
+
 

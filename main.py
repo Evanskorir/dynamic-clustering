@@ -7,7 +7,7 @@ def main():
 
     data_type = "quarterly"
     include_reinsurers = False
-    reduction_method = "autoencoder"
+    reduction_method = "lstm"
     data = DataLoader(data_type=data_type, include_reinsurers=include_reinsurers)
 
     ratios_data = InsuranceRatios(data=data.medical_data,

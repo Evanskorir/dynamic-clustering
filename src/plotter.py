@@ -67,12 +67,12 @@ class Plotter:
 
         # Plot and save unordered and ordered heatmaps
         self._plot_heatmap(distance_matrix, "Unordered DTW Distance Matrix",
-                           "unordered_dtw_distance_matrix.pdf",
+                           "unordered_dtw_distance_matrix.png",
                            output_subdir="distance_matrix", add_colorbar=False)
 
         self._plot_heatmap(
             ordered_distance_matrix, "Ordered DTW Distance Matrix",
-            "ordered_dtw_distance_matrix.pdf", output_subdir="distance_matrix",
+            "ordered_dtw_distance_matrix.png", output_subdir="distance_matrix",
             reordered_labels=dendro_idx, add_colorbar=True
         )
 
@@ -123,8 +123,38 @@ class Plotter:
         ordered_distance_matrix = distance_matrix[dendro_idx, :][:, dendro_idx]
         return ordered_distance_matrix, dendro_idx
 
+    def _style_plot(self, ax, title):
+        """
+        Styles the heatmap plot with balanced bold and rotated labels.
+        """
+        # Abbreviate company names
+        abbreviated_labels = [name if len(name) <= 15 else name[:12] + "..." for
+                              name in self.companies]
+
+        num_labels = len(abbreviated_labels)
+
+        # Center the ticks by offsetting by 0.5
+        ax.set_xticks(np.arange(num_labels) + 0.5)
+        ax.set_yticks(np.arange(num_labels) + 0.5)
+        ax.set_xticklabels(abbreviated_labels, fontsize=22, rotation=90, ha='right')
+        ax.set_yticklabels(abbreviated_labels, fontsize=22, ha="right")
+
+        # Customize tick size and thickness
+        ax.tick_params(axis='x', which='both', labelsize=22, width=2.2, length=8)
+        ax.tick_params(axis='y', which='both', labelsize=22, width=2.2, length=8)
+
+        # Add grid lines for readability
+        # ax.grid(visible=True, linestyle='--', linewidth=0.5, alpha=0.3)
+
+        # Plot boundaries
+        for spine in ax.spines.values():
+            spine.set_visible(True)
+            spine.set_linewidth(2)
+
+        plt.tight_layout(rect=[0, 0.05, 1, 1])
+
     @staticmethod
-    def _style_plot(ax, title):
+    def _style_plot2(ax, title):
         """
         Styles the heatmap plot with titles, labels, and tick parameters.
         """
@@ -146,7 +176,7 @@ class Plotter:
         """
         Adds a custom colorbar to the heatmap plot.
         """
-        cbar_ax = fig.add_axes((1.05, 0.28, 0.03, 0.71))  # (left, bottom, width, height)
+        cbar_ax = fig.add_axes((1.05, 0.2, 0.03, 0.79))  # (left, bottom, width, height)
         cbar = fig.colorbar(cax.collections[0], cax=cbar_ax)
 
         cbar.ax.tick_params(labelsize=20, colors="darkgreen", width=2)
@@ -159,6 +189,74 @@ class Plotter:
 
         cbar.set_label('DTW Distance', fontsize=20, fontweight='bold',
                        color='darkgreen', labelpad=20)
+
+    def plot_time_series_heatmap(self, time_series):
+        """
+        Plots a heatmap of the reduced time series data for each company.
+        """
+
+        if time_series is None:
+            raise ValueError("Reduced time series data is not available.")
+
+        # Ensure the input is a NumPy array for consistency
+        heatmap_array = np.array(time_series)
+
+        # Calculate the aspect ratio to maintain a rectangular shape
+        aspect_ratio = heatmap_array.shape[1] / heatmap_array.shape[0]
+        fig, ax = plt.subplots(figsize=(30, 14))
+
+        # Plot the heatmap using 'viridis' colormap for smooth gradients
+        cax = sns.heatmap(
+            heatmap_array,
+            cmap="viridis",
+            xticklabels=False,
+            yticklabels=False,
+            cbar=False,  # Disable default colorbar for custom styling
+            linewidths=0,
+            ax=ax,
+            linecolor='none'
+        )
+
+        # Add a custom colorbar
+        cbar = fig.colorbar(
+            cax.collections[0],
+            ax=ax,
+            orientation='vertical',
+            fraction=0.03,
+            pad=0.04
+        )
+        cbar.ax.set_ylabel("LSTM reduced data", fontsize=20, fontweight='bold',
+                           color="darkgreen", labelpad=20)
+        cbar.ax.tick_params(labelsize=20, colors="darkgreen")
+        cbar.outline.set_linewidth(1.5)
+
+        # Set x-axis ticks for time points
+        num_time_points = heatmap_array.shape[1]
+        quarterly_labels = self.labels.get('Sheet1', [])
+        ax.set_xticks(np.arange(num_time_points) + 0.5)
+        ax.set_xticklabels(quarterly_labels, rotation=90,
+                           fontsize=18, fontweight='bold', ha='center')
+
+        # Set y-axis ticks for companies
+        ax.set_yticks(np.arange(len(self.companies)) + 0.5)
+        ax.set_yticklabels(self.companies, fontsize=18, fontweight='bold', va='center')
+
+        # Customize tick size and thickness
+        ax.tick_params(axis='x', which='both', labelsize=18, width=2, length=8)
+        ax.tick_params(axis='y', which='both', labelsize=18, width=2, length=8)
+
+        # Enhance plot boundaries
+        for spine in ax.spines.values():
+            spine.set_visible(True)
+            spine.set_linewidth(2)
+
+        plt.tight_layout(rect=[0, 0, 0.9, 1])
+
+        # Save the heatmap
+        filename = "time_series_heatmap.png"
+        self._save_plot(filename, output_subdir="time_series")
+        plt.close()
+        print(f"Time series heatmap saved to '{filename}'")
 
     def plot_variable_split(self, variable_index, variable_name):
         """
@@ -205,6 +303,7 @@ class Plotter:
             orientation='vertical',
             fraction=0.03,  # Adjust colorbar width
             pad=0.04,
+            format='%d%%'
         )
         cbar.ax.set_ylabel(variable_name, fontsize=20, fontweight='bold',
                            color="darkgreen", labelpad=20)
@@ -283,7 +382,7 @@ class Plotter:
         plt.tight_layout()
 
         # Save and display the plot
-        self._save_plot("elbow_method.pdf", output_subdir="evaluation")
+        self._save_plot("elbow_method.png", output_subdir="evaluation")
 
     def plot_silhouette_curve(self, input_data, max_clusters=12, metric="dtw"):
         silhouette_scores = []
@@ -329,7 +428,7 @@ class Plotter:
         plt.axhline(y=0, color='black', linewidth=1.2, linestyle='--')
 
         # Display plot and save with a high-quality resolution
-        self._save_plot("silhouette.pdf", output_subdir="evaluation")
+        self._save_plot("silhouette.png", output_subdir="evaluation")
 
     def plot_2d_dimension_reduction(self, company_names, method: str):
         """
@@ -545,10 +644,13 @@ class Plotter:
                     # Get the company name
                     company_name = self.companies[company_idx]
                     # Plot the time series with the unique color for the company
-                    plt.plot(ts[:, 0], color=cluster_colors[idx], alpha=0.7, linewidth=1.5)  # Use the first feature
+                    plt.plot(ts, color=cluster_colors[idx], alpha=0.7, linewidth=1.5)
+                    # plt.plot(ts[:, 0], color=cluster_colors[idx], alpha=0.7, linewidth=1.5)  # Use the first feature
                     # Add the company name to the legend using scatter
-                    plt.scatter(np.arange(len(ts[:, 0])), ts[:, 0], color=cluster_colors[idx],
+                    plt.scatter(np.arange(len(ts)), ts, color=cluster_colors[idx],
                                 edgecolor='black', s=150, zorder=5, linewidths=2)
+                    # plt.scatter(np.arange(len(ts[:, 0])), ts[:, 0], color=cluster_colors[idx],
+                    #             edgecolor='black', s=150, zorder=5, linewidths=2)
 
                     # Create a proxy artist for the legend
                     proxy = plt.Line2D([0], [0], marker='o', color='w',
@@ -610,7 +712,7 @@ class Plotter:
             plt.gca().set_facecolor('#f9f9f9')  # Light background color
 
             # Save the plot for the individual cluster
-            plot_filename = f"cluster_{cluster_idx + 1}_time_series_with_insurers.pdf"
+            plot_filename = f"cluster_{cluster_idx + 1}_time_series_with_insurers.png"
             self._save_plot(plot_filename, output_subdir="time_series_clusters")
             print(f"Cluster {cluster_idx + 1} plot saved to {plot_filename}")
 

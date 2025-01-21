@@ -1,7 +1,7 @@
 # Decoding Financial Health in Kenya’s Medical Insurance Sector: A Data-Driven Cluster Analysis
 This repository presents a data-driven analysis of the performance of medical insurance providers in Kenya. By evaluating key financial ratios, including Market Share, Claims Paid Ratio, Claims Incurred Ratio, and Underwriting Profit Ratio, the project aims to assess the financial health and operational efficiency of different insurers.
 
-Using analytical techniques such as Principal Component Analysis (PCA), Autoencoders, and time-series analysis, the project identifies trends and patterns in the data that reflect the insurers' performance over time. These insights may assist policyholders in understanding the relative strengths and weaknesses of various insurance companies, as well as provide valuable information for stakeholders seeking to improve the sector's performance.
+Using analytical techniques such as Principal Component Analysis (PCA), Autoencoders, Long Short Term Memory (LSTM), and time-series analysis, the project identifies trends and patterns in the data that reflect the insurers' performance over time. These insights may assist policyholders in understanding the relative strengths and weaknesses of various insurance companies, as well as provide valuable information for stakeholders seeking to improve the sector's performance.
 
 Ultimately, this analysis seeks to inform decision-making for both consumers and industry participants, helping to improve transparency and competition in the Kenyan medical insurance market.
 
@@ -33,6 +33,7 @@ src
  │   └── dynamic_time_warping          
  ├── dimension_reduction       
  │   ├──  autoencoder
+ │   └── lstm
  │   └── pca
  ├── evaluation     
  │   ├── elbow_method
@@ -53,7 +54,8 @@ README
 - **`dynamic_time_warping.py`**: Performs clustering using TimeSeriesKMeans
 #### `src/dimension_reduction/`
 - **`autoencoder.py`**: Uses autoencoder for dimension reduction.
-- **`pca.py`**: Uses PCA for dimension reduction.
+- **`lstm.py`**: Uses LSTM for Temporal Feature Fusion.
+- - **`pca.py`**: Uses PCA for dimension reduction.
 
 #### `src/evaluation/`
 - **`elbow_method.py`**: Evaluates the desired number of clusters using elbow method  
