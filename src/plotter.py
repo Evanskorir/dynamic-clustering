@@ -382,7 +382,7 @@ class Plotter:
         plt.tight_layout()
 
         # Save and display the plot
-        self._save_plot("elbow_method.png", output_subdir="evaluation")
+        self._save_plot("elbow_method.pdf", output_subdir="evaluation")
 
     def plot_silhouette_curve(self, input_data, max_clusters=12, metric="dtw"):
         silhouette_scores = []
@@ -428,7 +428,7 @@ class Plotter:
         plt.axhline(y=0, color='black', linewidth=1.2, linestyle='--')
 
         # Display plot and save with a high-quality resolution
-        self._save_plot("silhouette.png", output_subdir="evaluation")
+        self._save_plot("silhouette.pdf", output_subdir="evaluation")
 
     def plot_2d_dimension_reduction(self, company_names, method: str):
         """
@@ -712,7 +712,7 @@ class Plotter:
             plt.gca().set_facecolor('#f9f9f9')  # Light background color
 
             # Save the plot for the individual cluster
-            plot_filename = f"cluster_{cluster_idx + 1}_time_series_with_insurers.png"
+            plot_filename = f"cluster_{cluster_idx + 1}_time_series_with_insurers.pdf"
             self._save_plot(plot_filename, output_subdir="time_series_clusters")
             print(f"Cluster {cluster_idx + 1} plot saved to {plot_filename}")
 

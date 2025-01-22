@@ -25,26 +25,30 @@ class LSTMFeatureFusion:
 
     def build_lstm_model(self):
         """
-        Builds the LSTM model to reduce 7 features to 1 over time.
+        Builds the LSTM model to reduce 7 features to 1 over time with explicit activations.
         """
         tf.random.set_seed(self.random_state)
 
         # Input shape: (time_steps, features) -> (41, 7)
         input_layer = Input(shape=(41, 7))
 
-        # LSTM Layer to capture temporal dependencies
-        lstm_out = LSTM(self.lstm_units, activation='relu',
-                        return_sequences=True)(input_layer)
+        # LSTM Layer with explicit activations
+        lstm_out = LSTM(
+            self.lstm_units,
+            activation='tanh',  # Input and output activation
+            recurrent_activation='sigmoid',  # Gate activation
+            return_sequences=True
+        )(input_layer)
         lstm_out = Dropout(self.dropout_rate)(lstm_out)
 
         # TimeDistributed Dense layer to reduce features to 1
-        output_layer = TimeDistributed(Dense(1))(lstm_out)
+        output_layer = TimeDistributed(Dense(1, activation='tanh'))(lstm_out)
 
         # Build and compile the model
         self.model = Model(inputs=input_layer, outputs=output_layer)
         self.model.compile(optimizer=Adam(), loss='mean_squared_error')
 
-        print("LSTM model built successfully.")
+        print("LSTM model built successfully with explicit activations.")
 
     def train_lstm_model(self, epochs=50, batch_size=8):
         """
