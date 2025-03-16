@@ -4,19 +4,19 @@ from src.ratios import InsuranceRatios
 
 
 def main():
-
-    data_type = "quarterly"
     include_reinsurers = False
     reduction_method = "lstm"
-    data = DataLoader(data_type=data_type, include_reinsurers=include_reinsurers)
+    data = DataLoader(include_reinsurers=include_reinsurers)
 
-    ratios_data = InsuranceRatios(data=data.medical_data,
+    ratios_data = InsuranceRatios(data=data.quarterly_medical_data,
                                   include_reinsurers=include_reinsurers)
 
-    analysis_controller = InsuranceAnalysisController(data=ratios_data,
-                                                      data_type=data_type,
-                                                      labels=data.labels,
+    analysis_controller = InsuranceAnalysisController(yearly_data=data.yearly_medical_data,
+                                                      data=ratios_data,
+                                                      quarterly_labels=data.quarterly_labels,
+                                                      yearly_labels=data.yearly_labels,
                                                       include_reinsurers=include_reinsurers)
+
     analysis_controller.run_analysis(reduction_method=reduction_method)
 
 

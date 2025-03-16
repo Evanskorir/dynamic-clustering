@@ -2,10 +2,12 @@ import numpy as np
 
 
 class InsuranceRatios:
-    def __init__(self, data, include_reinsurers=True, claims_threshold=500):
+    def __init__(self, data, include_reinsurers=True, claims_threshold=500,
+                 use_thresholds=False):
         self.data = data
         self.include_reinsurers = include_reinsurers
         self.claims_threshold = claims_threshold  # claims threshold
+        self.use_thresholds = use_thresholds  # Flag to apply thresholds
         self.ratios_data = {}
 
         # Threshold limits for various ratios
@@ -50,22 +52,19 @@ class InsuranceRatios:
                                     i] / total_gpi_for_quarter) * \
                                100 if total_gpi_for_quarter != 0 else 0
 
-                # Calculate Claims Paid Ratio (without thresholding)
+                # Calculate Claims Paid Ratio
                 claims_paid_ratio = self.calculate_ratio(claims_paid[i],
-                                                         gross_premium_income[i],
-                                                         "claims_paid_ratio")
+                                                         gross_premium_income[i])
 
-                # Calculate Claims Incurred Ratio (without thresholding)
+                # Calculate Claims Incurred Ratio
                 claims_incurred_ratio = self.calculate_ratio(claims_incurred[i],
-                                                             gross_premium_income[i],
-                                                             "claims_incurred_ratio")
+                                                             gross_premium_income[i])
 
-                # Calculate Underwriting Profit Ratio (without thresholding)
+                # Calculate Underwriting Profit Ratio
                 underwriting_profit_ratio = self.calculate_ratio(underwriting_profits[i],
-                                                                 gross_premium_income[i],
-                                                                 "underwriting_profit_ratio")
+                                                                 gross_premium_income[i])
 
-                # Calculate Expenses with check to avoid negative or erroneous results
+                # Calculate Expenses
                 expenses = gross_premium_income[i] - (claims_incurred[i] + underwriting_profits[i])
 
                 # Check for negative expenses and reset them to 0
@@ -74,18 +73,16 @@ class InsuranceRatios:
                           f"Setting expenses to 0.")
                     expenses = 0
 
-                # Calculate Expense Ratio (without thresholding)
-                expense_ratio = (expenses / gross_premium_income[i]) * \
-                                100 if gross_premium_income[i] != 0 else 0
+                # Calculate Expense Ratio
+                expense_ratio = self.calculate_ratio(expenses, gross_premium_income[i])
 
-                # Calculate Combined Ratio (without thresholding)
-                loss_ratio = claims_incurred_ratio  # Loss ratio is just the claims incurred ratio
+                # Calculate Combined Ratio
+                loss_ratio = claims_incurred_ratio
                 combined_ratio = loss_ratio + expense_ratio
 
-                # Calculate Claims Payout Ratio (without thresholding)
+                # Calculate Claims Payout Ratio
                 claims_payout_ratio = self.calculate_ratio(claims_paid[i],
-                                                           claims_incurred[i],
-                                                           "claims_payout_ratio")
+                                                           claims_incurred[i])
 
                 # Append ratios for this quarter
                 ratios_per_quarter.append([
@@ -101,16 +98,16 @@ class InsuranceRatios:
             # Store the computed ratios for all quarters for this company
             self.ratios_data[company] = np.array(ratios_per_quarter)
 
-        # After computing all ratios, now apply thresholds
-        self.apply_thresholds()
+        # Apply thresholds only if enabled
+        if self.use_thresholds:
+            self.apply_thresholds()
 
     @staticmethod
-    def calculate_ratio(numerator, denominator, ratio_type):
+    def calculate_ratio(numerator, denominator):
         """
         Helper method to safely calculate a ratio.
         :param numerator: The numerator of the ratio.
         :param denominator: The denominator of the ratio.
-        :param ratio_type: The type of the ratio (used for threshold capping).
         :return: Calculated ratio.
         """
         if denominator != 0:
@@ -121,8 +118,7 @@ class InsuranceRatios:
 
     def apply_thresholds(self):
         """
-        Apply the predefined thresholds to all calculated ratios after computation.
-        This function ensures the expense and combined ratios are capped correctly.
+        Apply the predefined thresholds to all calculated ratios if `use_thresholds` is True.
         """
         for company in self.ratios_data:
             company_ratios = self.ratios_data[company]
@@ -155,8 +151,5 @@ class InsuranceRatios:
         """
         Returns the computed ratios for all companies.
         :return: Dictionary containing computed ratios for each company.
-        Format: {'Company Name': ndarray with columns [Market Share, Claims Paid Ratio,
-        Claims Incurred Ratio, Underwriting Profit Ratio, Expense Ratio,
-        Combined Ratio, Claims Payout Ratio]}
         """
         return self.ratios_data

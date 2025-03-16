@@ -1,6 +1,7 @@
 import numpy as np
 
 from src.clustering_technique.dynamic_time_warping import DTWClustering
+from src.data_preprocessor import YearlyDataProcessor
 from src.dimension_reduction.autoencoder import Autoencoder
 from src.dimension_reduction.pca import Pca
 from src.dimension_reduction.lstm import LSTMFeatureFusion
@@ -12,15 +13,20 @@ from src.reconstruction_error import ErrorReconstruction
 
 
 class InsuranceAnalysisController:
-    def __init__(self, data: InsuranceRatios, labels, include_reinsurers, data_type: str):
+    def __init__(self, yearly_data, data: InsuranceRatios, quarterly_labels,
+                 yearly_labels, include_reinsurers):
 
-        self.data_type = data_type
+        self.yearly_data = yearly_data
         self.data_loader = data
-        self.labels = labels
+        self.labels = quarterly_labels
+        self.yearly_labels = yearly_labels
+        self.yearly_cols = None
         self.include_reinsurers = include_reinsurers
         self.time_series_data = None
         self.companies = None
         self.reduced_time_series_data = None
+        self.processed_yearly_data = None
+        self.yearly_headers = None
 
         self.reconstructed_data = None
         self.scaled_ratios_data = None
@@ -31,7 +37,11 @@ class InsuranceAnalysisController:
 
         self.clusters = None
         self.dtw_cluster = None
+        self.linkage_matrix = None
         self.plotter = None
+
+        self.load_data()
+        self.process_yearly_data()
 
     def load_data(self):
         max_len = max(len(series) for series in self.data_loader.ratios_data.values())
@@ -47,6 +57,12 @@ class InsuranceAnalysisController:
         scaled_ratios_data = RatiosScaler(ratios_data=self.data_loader.ratios_data)
         scaled_ratios_data.scale_the_data(scaler_type="standard", method="within")
         self.scaled_ratios_data = scaled_ratios_data.scaled_ratios_data
+
+    def process_yearly_data(self):
+        print("Processing and structuring the yearly data...")
+        preprocessor = YearlyDataProcessor(yearly_medical_data=self.yearly_data)
+        self.processed_yearly_data = preprocessor.yearly_processed_data
+        self.yearly_cols = preprocessor.col_names
 
     def apply_dimensionality_reduction(self, method: str = "autoencoder"):
         if method.lower() == "autoencoder":
@@ -77,6 +93,7 @@ class InsuranceAnalysisController:
             self.lstm_fusion.build_lstm_model()
             self.lstm_fusion.train_lstm_model(epochs=12, batch_size=16)
             self.reduced_time_series_data = self.lstm_fusion.apply_lstm_model()
+            print("data", self.reduced_time_series_data.shape)
         else:
             raise ValueError(f"Unsupported dimensionality reduction method: {method}")
 
@@ -117,6 +134,10 @@ class InsuranceAnalysisController:
         for cluster, members in cluster_groups.items():
             print(f"Cluster {cluster + 1}: {members}")
 
+        # hierarchical clustering
+        dtw_cluster.perform_hierarchical_clustering()
+        self.linkage_matrix = dtw_cluster.linkage_matrix
+
     def get_evaluation_plot(self, evaluation_criteria):
         # Map evaluation criteria to the corresponding plotter methods
         evaluation_methods = {
@@ -134,7 +155,7 @@ class InsuranceAnalysisController:
         if plot_method:
             plot_method()
 
-    def initialize_plotter(self):
+    def initialize_plotter(self, reduction_method):
         print("Initializing Plotter...")
         cluster_centers = self.dtw_cluster.get_cluster_centers()
         self.plotter = Plotter(
@@ -150,15 +171,18 @@ class InsuranceAnalysisController:
             include_reinsurers=self.include_reinsurers
         )
         self.plotter.plot_distance_matrix(distance_matrix=self.distance_mtx)
-        self.plotter.plot_cluster_scatter()
+        self.plotter.plot_cluster_scatter(approach=reduction_method)
         self.plotter.plot_reconstruction_error(
             reconstruction_errors=self.reconstruction_errors)
+        self.plotter.plot_hierarchical_dendrogram(linkage_matrix=self.linkage_matrix,
+                                                  threshold=4.0)
 
-    def plot_variables(self):
-        # Step 4: Plot variables (Gross Premium Income, Claims Paid,
-        # Claims Incurred, Underwriting Profits etc.)
+    def plot_variables(self, approach):
         print("Plotting variables...")
-        self.plotter.plot_time_series_heatmap(self.reduced_time_series_data)
+        if approach == "lstm":
+            self.plotter.plot_time_series_heatmap(self.reduced_time_series_data)
+        else:
+            self.plotter.plot_time_series_heatmap(self.reduced_time_series_data[:, :, :1])
         self.plotter.plot_variable_split(0, "Market Share")
         self.plotter.plot_variable_split(1, "Claims Paid Ratio")
         self.plotter.plot_variable_split(2, "Claims Incurred Ratio")
@@ -166,11 +190,15 @@ class InsuranceAnalysisController:
         self.plotter.plot_variable_split(4, "Expense Ratio")
         self.plotter.plot_variable_split(5, "Combined Ratio")
         self.plotter.plot_variable_split(6, "Claims Payout Ratio")
+        self.plotter.plot_yearly_time_series_heatmaps(yearly_data=self.processed_yearly_data,
+                                             yearly_labels=self.yearly_labels,
+                                             headers=self.yearly_cols)
 
     def run_analysis(self, reduction_method):
         # Step 1: Load and Scale Data
         self.load_data()
         self.scale_the_data()
+        self.process_yearly_data()
 
         # Step 2: Apply Dimensionality Reduction
         self.apply_dimensionality_reduction(method=reduction_method)
@@ -182,9 +210,9 @@ class InsuranceAnalysisController:
         self.perform_clustering()
 
         # Step 5: Initialize Plotter
-        self.initialize_plotter()
+        self.initialize_plotter(reduction_method=reduction_method)
         # Visualize the Variables (Financial ratios)
-        self.plot_variables()
+        self.plot_variables(approach="lstm")
 
         # Step 6: Get Evaluation Plot
         self.get_evaluation_plot(evaluation_criteria="elbow")

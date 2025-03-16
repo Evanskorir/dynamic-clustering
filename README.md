@@ -38,7 +38,8 @@ src
  ├── evaluation     
  │   ├── elbow_method
  │   │   └── silhouette
- ├── controller  
+ ├── controller 
+ ├── data_processor 
  ├── dataloader 
  ├── distance_matrix 
  ├── plotter  
@@ -62,6 +63,7 @@ README
 - **`silhouette.py`**: Evaluates the desired number of clusters using silhouette score.
 #### `src/`
 - **`controller.py`**:  Handles data loading and initialization.
+- **`data_processor.py`**: Designed to preprocess the yearly data required for the project.
 - **`dataloader.py`**: Designed to load and preprocess data required for the project.
 - **`distance_matrix.py`**: Calculates the distance matrix of the reduced ratio data.
 - **`plotter.py`**: Generates a reduced scatter plot to visualize the clusters. It also plots a time series clusters 
@@ -112,7 +114,9 @@ clustering using the complete linkage method.
 considering average distance of each insurer.
      ├── time_series_clusters
      │    └── cluster_time_series_with_members.png # Visualizes the time series clusters along with the members.
-     ├── time_series_data 
+     ├── hierarchical
+     │    └── hierarchical.png # Visualizes the hierarchical clusters of the companies.
+     ├── heatmaps 
      │    ├── Claims_Incurred_Ratio
      │    │   ├── time_series_average_performing_insurers
      │    │   ├── time_series_best_performing_insurers

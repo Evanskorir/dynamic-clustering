@@ -1,3 +1,5 @@
+import numpy as np
+import scipy.cluster.hierarchy as sch
 from tslearn.clustering import TimeSeriesKMeans
 
 
@@ -8,12 +10,12 @@ class DTWClustering:
         :param reduced_time_series_data: Reduced-dimension time-series data.
         :param random_seed: Random seed for reproducibility.
         """
+
         self.time_series_data = reduced_time_series_data
-        # self.scaled_data = scaled_data
-        # self.companies = companies
         self.cluster_model = None
         self.cluster_labels = None
         self.random_state = random_seed
+        self.linkage_matrix = None
 
     def perform_clustering(self, n_clusters=4):
         """
@@ -49,3 +51,23 @@ class DTWClustering:
         if self.cluster_model is None or self.cluster_model.cluster_centers_ is None:
             raise ValueError("Clustering has not been performed yet.")
         return self.cluster_model.cluster_centers_
+
+    def perform_hierarchical_clustering(self, threshold=3.0,
+                                        linkage="complete"):
+        """
+        Perform Hierarchical Clustering using the precomputed DTW distance matrix.
+        :param threshold: Distance threshold for defining clusters.
+        :param linkage: Linkage method ('single', 'complete', 'average', 'ward').
+        """
+        if self.time_series_data is None:
+            raise ValueError("DTW distance matrix is not available. Ensure it's precomputed.")
+
+        # Ensure the distance matrix is symmetric and float64
+        distance_matrix = np.array(self.time_series_data, dtype=np.float64)
+
+        self.linkage_matrix = sch.linkage(distance_matrix, method=linkage)
+
+        # ✅ Extract cluster labels based on the threshold
+        self.cluster_labels = sch.fcluster(self.linkage_matrix,
+                                           t=threshold,
+                                           criterion='distance')
