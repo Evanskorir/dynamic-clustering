@@ -6,8 +6,6 @@ import seaborn as sns
 import scipy.cluster.hierarchy as sch
 
 from dashboard import DashboardController
-from src.evaluation.silhouette import ClusteringEvaluation
-from src.clustering_technique.dynamic_time_warping import DTWClustering
 from src.controller import InsuranceAnalysisController
 
 st.set_page_config(page_title="Insurance Dashboard", layout="wide")
