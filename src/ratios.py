@@ -32,7 +32,6 @@ class InsuranceRatios:
 
     def compute_ratios(self):
         np.seterr(divide='ignore', invalid='ignore')
-
         for company, values in self.data.items():
             gross_premium_income = values[:, 0]
             claims_paid = values[:, 1]
@@ -41,7 +40,8 @@ class InsuranceRatios:
             ratios_per_quarter = []
             for i in range(len(gross_premium_income)):
                 if gross_premium_income[i] < 0:
-                    print(f"Warning: Negative GPI for {company} at quarter {i}. Setting GPI to 0.")
+                    print(f"Warning: Negative GPI for {company} at quarter {i}. "
+                          f"Setting GPI to 0.")
                     gross_premium_income[i] = 0
 
                 total_gpi_for_quarter = sum([self.data[other_company][i, 0]

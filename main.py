@@ -4,8 +4,9 @@ from src.ratios import InsuranceRatios
 
 
 def main():
-    include_reinsurers = False
-    reduction_method = "lstm"
+    include_reinsurers = True
+    reduction_method = "pca"
+    n_clusters = 4
     data = DataLoader(include_reinsurers=include_reinsurers)
 
     ratios_data = InsuranceRatios(data=data.quarterly_medical_data,
@@ -15,9 +16,11 @@ def main():
                                                       data=ratios_data,
                                                       quarterly_labels=data.quarterly_labels,
                                                       yearly_labels=data.yearly_labels,
-                                                      include_reinsurers=include_reinsurers)
+                                                      include_reinsurers=include_reinsurers,
+                                                      reduction_method=reduction_method)
 
-    analysis_controller.run_analysis(reduction_method=reduction_method)
+    analysis_controller.run_analysis(reduction_method=reduction_method,
+                                     n_clusters=n_clusters)
 
 
 if __name__ == '__main__':

@@ -14,7 +14,7 @@ from src.reconstruction_error import ErrorReconstruction
 
 class InsuranceAnalysisController:
     def __init__(self, yearly_data, data: InsuranceRatios, quarterly_labels,
-                 yearly_labels, include_reinsurers):
+                 yearly_labels, include_reinsurers, reduction_method):
 
         self.yearly_data = yearly_data
         self.data_loader = data
@@ -27,6 +27,8 @@ class InsuranceAnalysisController:
         self.reduced_time_series_data = None
         self.processed_yearly_data = None
         self.yearly_headers = None
+
+        self.reduction_method = reduction_method
 
         self.reconstructed_data = None
         self.scaled_ratios_data = None
@@ -117,7 +119,7 @@ class InsuranceAnalysisController:
         else:
             self.distance_mtx = dist_mtx.ratio_distance_matrices
 
-    def perform_clustering(self, n_clusters: int = 4):
+    def perform_clustering(self, n_clusters):
         print(f"Performing KMeans clustering on reduced data...")
         dtw_cluster = DTWClustering(
             reduced_time_series_data=self.reduced_time_series_data,
@@ -132,11 +134,30 @@ class InsuranceAnalysisController:
             cluster_groups.setdefault(cluster, []).append(self.companies[idx])
 
         for cluster, members in cluster_groups.items():
-            print(f"Cluster {cluster + 1}: {members}")
+            print(f"Cluster {cluster}: {members}")
 
         # hierarchical clustering
         dtw_cluster.perform_hierarchical_clustering()
+        linkage_matrix = dtw_cluster.linkage_matrix
+        threshold = self.get_cluster_threshold_from_linkage(linkage_matrix, n_clusters)
+        dtw_cluster.perform_hierarchical_clustering(threshold=threshold)
+
         self.linkage_matrix = dtw_cluster.linkage_matrix
+
+    @staticmethod
+    def get_cluster_threshold_from_linkage(linkage_matrix, n_clusters):
+        """
+        Determine a distance threshold that would produce `
+        n_clusters` from a hierarchical linkage matrix.
+        """
+        if linkage_matrix is None:
+            raise ValueError("Linkage matrix not computed.")
+        if n_clusters < 1 or n_clusters > linkage_matrix.shape[0] + 1:
+            raise ValueError("Invalid number of clusters.")
+
+        distances = linkage_matrix[:, 2]
+        sorted_distances = np.sort(distances)[::-1]
+        return sorted_distances[n_clusters - 1]
 
     def get_evaluation_plot(self, evaluation_criteria):
         # Map evaluation criteria to the corresponding plotter methods
@@ -168,14 +189,22 @@ class InsuranceAnalysisController:
             reduced_data=self.reduced_time_series_data,
             reconstructed_data=self.reconstructed_data,
             labels=self.labels,
-            include_reinsurers=self.include_reinsurers
+            include_reinsurers=self.include_reinsurers,
+            yearly_cols=self.yearly_cols
         )
         self.plotter.plot_distance_matrix(distance_matrix=self.distance_mtx)
         self.plotter.plot_cluster_scatter(approach=reduction_method)
         self.plotter.plot_reconstruction_error(
             reconstruction_errors=self.reconstruction_errors)
+
+        if self.reduction_method == "autoencoder":
+            threshold = 2.0
+        elif self.reduction_method == "pca":
+            threshold = 30.0
+        else:
+            threshold = 5.0
         self.plotter.plot_hierarchical_dendrogram(linkage_matrix=self.linkage_matrix,
-                                                  threshold=4.0)
+                                                  threshold=threshold)
 
     def plot_variables(self, approach):
         print("Plotting variables...")
@@ -194,7 +223,7 @@ class InsuranceAnalysisController:
                                              yearly_labels=self.yearly_labels,
                                              headers=self.yearly_cols)
 
-    def run_analysis(self, reduction_method):
+    def run_analysis(self, reduction_method, n_clusters):
         # Step 1: Load and Scale Data
         self.load_data()
         self.scale_the_data()
@@ -207,12 +236,12 @@ class InsuranceAnalysisController:
         self.get_pairwise_distance()
 
         # Step 4: Perform Clustering
-        self.perform_clustering()
+        self.perform_clustering(n_clusters=n_clusters)
 
         # Step 5: Initialize Plotter
         self.initialize_plotter(reduction_method=reduction_method)
         # Visualize the Variables (Financial ratios)
-        self.plot_variables(approach="lstm")
+        self.plot_variables(approach=reduction_method)
 
         # Step 6: Get Evaluation Plot
         self.get_evaluation_plot(evaluation_criteria="elbow")

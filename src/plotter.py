@@ -4,7 +4,8 @@ import matplotlib.pyplot as plt
 import os
 import scipy.cluster.hierarchy as sch
 import seaborn as sns
-
+from matplotlib.ticker import ScalarFormatter
+from scipy.cluster.hierarchy import fcluster
 from matplotlib.colors import ListedColormap, LinearSegmentedColormap
 from src.evaluation.silhouette import ClusteringEvaluation
 from src.evaluation.elbow_method import ElbowMethod
@@ -16,7 +17,8 @@ matplotlib.use('agg')
 class Plotter:
     def __init__(self, cluster_centers, time_series_data, data_scaled,
                  cluster_labels, companies, dtw_clustering, labels,
-                 include_reinsurers, reduced_data=None, reconstructed_data=None):
+                 include_reinsurers, reduced_data=None, reconstructed_data=None,
+                 yearly_cols=None):
 
         self.cluster_centers = cluster_centers
         self.time_series_data = time_series_data
@@ -28,6 +30,7 @@ class Plotter:
         self.reduced_data = reduced_data
         self.reconstructed_data = reconstructed_data
         self.include_reinsurers = include_reinsurers
+        self.yearly_cols = yearly_cols
 
     @staticmethod
     def _create_output_dir(output_subdir=""):
@@ -191,54 +194,53 @@ class Plotter:
                        color='darkgreen', labelpad=20)
 
     def plot_hierarchical_dendrogram(self, linkage_matrix, threshold=None):
-        fig, ax = plt.subplots(figsize=(18, 12), dpi=400)  # Wider figure
+        fig, ax = plt.subplots(figsize=(18, 10), dpi=300)
+        cluster_colors = ['#1b9e77', '#d95f02', '#7570b3', '#e7298a',
+                          '#66a61e', '#e6ab02', '#a6761d', '#666666',
+                          '#1f78b4', '#b2df8a']
 
-        # Define the original colors used in the dendrogram
-        cluster_colors = ['royalblue', 'darkorange', 'forestgreen', 'crimson']
         sch.set_link_color_palette(cluster_colors)
 
-        # Create the dendrogram
+        # Generate dendrogram and get leaf label colors
         dendrogram = sch.dendrogram(
             linkage_matrix,
             color_threshold=threshold,
-            leaf_rotation=45,  # Better readability
-            leaf_font_size=12,  # Adjust font size
+            leaf_rotation=90,
+            leaf_font_size=14,
             show_leaf_counts=False,
             labels=self.companies,
-            above_threshold_color='dimgray',
+            above_threshold_color='black',
             ax=ax
         )
 
-        ax.set_ylabel('Cluster Distance', fontsize=24, fontweight="bold", labelpad=15)
+        for tick in ax.get_xticklines():
+            tick.set_visible(False)
 
-        # Adjust tick parameters
-        ax.tick_params(axis='x', labelsize=14, rotation=45, pad=12)  # Adjust rotation and spacing
-        ax.tick_params(axis='y', labelsize=20)
+        # Apply matching colors to leaf labels
+        xlbls = ax.get_xmajorticklabels()
+        for lbl in xlbls:
+            leaf_text = lbl.get_text()
+            lbl.set_color(dendrogram['leaves_color_list'][
+                              dendrogram['ivl'].index(leaf_text)])
+            lbl.set_fontweight("medium")
 
-        # Ensure labels are properly centered
-        for label in ax.get_xticklabels():
-            label.set_ha('right')  # Align for better readability
+        ax.tick_params(axis='x', labelsize=18)
+        ax.tick_params(axis='y', labelsize=18)
+        ax.set_ylabel('Cluster Distance', fontsize=25, fontweight="bold",
+                      color="black", labelpad=15)
+        ax.tick_params(axis='y', labelsize=20, width=3.5, length=8, colors="black")
 
-        # Add a readable grid
-        ax.yaxis.grid(True, linestyle='--', alpha=0.6)
-        ax.axhspan(0, threshold, facecolor='lightgray', alpha=0.2)
-
-        # Define the remapped colors for the legend (manual swap)
-        legend_colors = ['crimson', 'darkorange', 'royalblue', 'forestgreen']
-
-        # Manually creating a reordered legend
-        legend_patches = [plt.Line2D([0], [0], color=color, lw=6,
-                                     label=f'Cluster {i + 1}')
-                          for i, color in enumerate(legend_colors)]  # Use legend_colors instead of cluster_colors
-
-        ax.legend(handles=legend_patches, loc='upper left', fontsize=16,
-                  frameon=True, edgecolor="black",
-                  fancybox=True, shadow=True, bbox_to_anchor=(1, 1))
+        # Clean look: no grid, no threshold shading
+        ax.grid(False)
+        ax.spines['left'].set_color("black")
+        ax.spines['left'].set_linewidth(2)
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.spines['bottom'].set_visible(False)
 
         plt.tight_layout()
-        plt.subplots_adjust(left=0.05, right=0.85, top=0.92, bottom=0.3)  # Improved spacing
-
-        self._save_plot("hierarchical_dendrogram.pdf", output_subdir="hierarchical")
+        self._save_plot("hierarchical_dendrogram_clean.pdf",
+                        output_subdir="hierarchical")
 
     def plot_time_series_heatmap(self, time_series):
         """
@@ -312,58 +314,56 @@ class Plotter:
         plt.close()
         print(f"Time series heatmap saved to '{filename}'")
 
-    def plot_yearly_time_series_heatmaps(self, yearly_data, yearly_labels, headers):
+    def plot_yearly_time_series_heatmaps(self, yearly_data, yearly_labels, headers, cmap="jet"):
         """
-        Plots heatmaps for each header, visualizing company data over time.
+        Plots heatmaps for each selected yearly variable (header), showing company trends over years.
         """
         max_years = 11  # Standardized number of years
         x_labels = [str(int(year)) for year in yearly_labels['Sheet1']]
 
-        for idx, header in enumerate(headers):
+        for header in headers:
             print(f"Plotting heatmap for: {header}")
 
-            # Extract data for the header
-            header_data = []
-            company_labels = []
+            if header not in self.labels['Sheet1']:
+                print(f"Warning: '{header}' not found in column labels. Skipping.")
+                continue
+
+            header_idx = self.labels['Sheet1'].index(header)
+            company_labels, header_data = [], []
+
             for company in self.companies:
                 if company in yearly_data:
-                    data = yearly_data[company][:, idx]
+                    data = yearly_data[company][:, header_idx]
                     company_labels.append(company)
                 else:
-                    data = np.zeros(max_years, dtype=int)
+                    data = np.zeros(max_years, dtype=float)
 
+                # Ensure fixed length for all rows
                 if data.shape[0] < max_years:
-                    padding = np.zeros((max_years - data.shape[0],), dtype=int)
-                    data = np.concatenate([data, padding])
-                elif data.shape[0] > max_years:
+                    data = np.pad(data, (0, max_years - data.shape[0]), mode='constant')
+                else:
                     data = data[:max_years]
 
                 header_data.append(data)
 
             header_data = np.array(header_data, dtype=np.float64)
 
-            # Create an annotation array
-            annot_data = np.array([[
-                "{:.0f}".format(val) if val != 0 else "0" for val in row] for
-                row in header_data
-            ])
-
-            vmin, vmax = np.min(header_data), np.max(header_data)
-            if vmin == vmax:
-                vmin, vmax = 0, vmax + max(1, 0.1 * vmax)
-
-            # Plot the heatmap
-            # viridis, cividis, magma, plasma, coolwarm, RdBu, PuOr
             fig, ax = plt.subplots(figsize=(30, 14))
             cax = sns.heatmap(
-                header_data, cmap="jet", xticklabels=x_labels,
+                header_data,
+                cmap=cmap,
+                xticklabels=x_labels,
                 yticklabels=company_labels,
-                cbar=False, linewidths=0, ax=ax, linecolor='none'
+                cbar=False,
+                linewidths=0,
+                ax=ax,
+                linecolor='none'
             )
 
-            # Add a custom colorbar
+            # Add custom colorbar
             cbar = fig.colorbar(
-                cax.collections[0], ax=ax, orientation='vertical', fraction=0.03, pad=0.04
+                cax.collections[0], ax=ax, orientation='vertical',
+                fraction=0.03, pad=0.04
             )
             cbar.ax.set_ylabel(
                 header.upper(), fontsize=22, fontweight='bold',
@@ -372,15 +372,11 @@ class Plotter:
             cbar.ax.tick_params(labelsize=20, colors="darkgreen")
             cbar.outline.set_linewidth(2)
 
-            # Remove x-axis and y-axis labels for a professional look
+            # Styling
             ax.set_xlabel("")
             ax.set_ylabel("")
-
-            # Customize tick appearance
-            ax.tick_params(axis='x', which='both', labelsize=18, width=2, length=8)
-            ax.tick_params(axis='y', which='both', labelsize=18, width=2, length=8)
-
-            # Enhance plot boundaries
+            ax.tick_params(axis='x', labelsize=18, width=2, length=8)
+            ax.tick_params(axis='y', labelsize=18, width=2, length=8)
             for spine in ax.spines.values():
                 spine.set_visible(True)
                 spine.set_linewidth(2)
@@ -388,14 +384,14 @@ class Plotter:
 
             plt.title(f"{header} Over Time", fontsize=24, fontweight='bold',
                       color="black", pad=30)
-            plt.tight_layout(rect=[0.15, 0, 0.9, 1])  # Adjusted left padding to give space for labels
+            plt.tight_layout(rect=[0.15, 0, 0.9, 1])
 
-            filename = f"heatmap_{header.replace(' ', '_').lower()}.pdf"
+            filename = f"heatmap_{header.replace(' ', '_').lower()}.png"
             self._save_plot(filename, output_subdir="yearly_time_series_heatmaps")
             plt.close()
-            print(f" Heatmap for '{header}' saved to '{filename}'")
+            print(f"Heatmap for '{header}' saved to '{filename}'")
 
-    def plot_variable_split(self, variable_index, variable_name):
+    def plot_variable_split2(self, variable_index, variable_name):
         """
         Plots a heatmap for the variable across all companies.
         Ensures a rectangular shape and centered tick labels.
@@ -415,7 +411,7 @@ class Plotter:
 
         # Gather data into a 2D array
         heatmap_data = [variable_data[company] for company in companies]
-        heatmap_array = np.array(heatmap_data)  # Directly convert to a numpy array
+        heatmap_array = np.array(heatmap_data)
 
         # Adjust aspect ratio for a more rectangular plot
         aspect_ratio = len(heatmap_array[0]) / len(companies)  # Based on data dimensions
@@ -475,6 +471,274 @@ class Plotter:
         plt.close()
         print(f"Heatmap for '{variable_name}' saved to '{filename}'")
 
+    def plot_variable_split(self, variable_index, variable_name):
+        """
+        Plots a heatmap for the variable across all companies.
+        Prints time series data for the specified variable (e.g., Underwriting Profits Ratio).
+        """
+
+        # Prepare the data in dictionary format for all variables
+        variable_data = {
+            company: values[:, variable_index].astype(float)
+            for company, values in self.time_series_data.items()
+            if values.ndim == 2 and values.shape[1] > variable_index
+        }
+        for company, series in variable_data.items():
+            print(f"  {company}: {np.round(series, 3)}")
+
+        # Determine companies to include
+        if self.include_reinsurers:
+            companies = list(variable_data.keys())[5:]  # Exclude the first 5 companies
+        else:
+            companies = list(variable_data.keys())  # Include all companies
+
+        # Gather data into a 2D array
+        heatmap_data = [variable_data[company] for company in companies]
+        heatmap_array = np.array(heatmap_data)
+
+        # Plotting logic (unchanged from before)
+        fig, ax = plt.subplots(figsize=(30, 14))
+        cax = sns.heatmap(
+            heatmap_array,
+            cmap="jet",
+            xticklabels=False,
+            yticklabels=False,
+            cbar=False,
+            linewidths=0,
+            ax=ax,
+            linecolor='none',
+        )
+
+        cbar = fig.colorbar(
+            cax.collections[0],
+            ax=ax,
+            orientation='vertical',
+            fraction=0.03,
+            pad=0.04,
+            format='%d%%'
+        )
+        cbar.ax.set_ylabel(variable_name, fontsize=20, fontweight='bold',
+                           color="darkgreen", labelpad=20)
+        cbar.ax.tick_params(labelsize=20, colors="darkgreen")
+        cbar.outline.set_linewidth(1.5)
+
+        num_time_points = heatmap_array.shape[1]
+        quarterly_labels = self.labels.get('Sheet1', [])
+        ax.set_xticks(np.arange(num_time_points) + 0.5)
+        ax.set_xticklabels(quarterly_labels, rotation=90,
+                           fontsize=18, fontweight='bold', ha='center')
+
+        ax.set_yticks(np.arange(len(companies)) + 0.5)
+        ax.set_yticklabels(companies, fontsize=18, fontweight='bold', va='center')
+
+        ax.tick_params(axis='x', which='both', labelsize=18, width=2, length=8)
+        ax.tick_params(axis='y', which='both', labelsize=18, width=2, length=8)
+
+        for spine in ax.spines.values():
+            spine.set_visible(True)
+            spine.set_linewidth(2)
+
+        plt.tight_layout(rect=[0, 0, 0.9, 1])
+
+        filename = f"heatmap_{variable_name.replace(' ', '_').lower()}.png"
+        self._save_plot(filename, output_subdir=f"heatmaps/{variable_name}")
+        plt.close()
+
+    def generate_yearly_heatmap_figure(self, yearly_data, quarterly_labels, header,
+                                       cmap="jet", selected_companies=None,
+                                       column_names=None, use_quarterly_labels=True):
+        """
+        Generate a heatmap using either quarterly or yearly labels.
+        Supports dynamic switching to use high-resolution quarterly labels.
+        """
+
+        # === Normalize and lookup variable index ===
+        header_clean = " ".join(header.strip().lower().split())
+
+        # Use passed column_names or fallback to self.yearly_cols
+        columns = column_names if column_names else self.yearly_cols
+        header_lookup = {col.strip().lower(): i for i, col in enumerate(columns)}
+
+        if header_clean not in header_lookup:
+            print(f"[ERROR] Header '{header}' not found in yearly columns.")
+            return None
+
+        variable_index = header_lookup[header_clean]
+
+        # === Select Labels ===
+        raw_labels = quarterly_labels if use_quarterly_labels else self.yearly_labels
+        x_labels = list(raw_labels)
+        num_periods = len(x_labels)
+
+        if selected_companies is None:
+            selected_companies = self.companies
+
+        heatmap_data = []
+        final_company_labels = []
+
+        for company in selected_companies:
+            values = yearly_data.get(company)
+
+            if values is None or values.ndim != 2 or values.shape[1] <= variable_index:
+                print(f"[WARN] Skipping {company}: Invalid shape or missing.")
+                continue
+
+            cleaned_rows = []
+            for row in values:
+                try:
+                    float(row[variable_index])
+                    cleaned_rows.append(row)
+                except (ValueError, TypeError):
+                    continue
+
+            if not cleaned_rows:
+                print(f"[SKIP] {company}: No valid rows after filtering.")
+                continue
+
+            try:
+                cleaned_array = np.array(cleaned_rows, dtype=np.float64)
+                series = cleaned_array[:, variable_index]
+
+                if len(series) < num_periods:
+                    series = np.pad(series, (0, num_periods - len(series)), constant_values=np.nan)
+                elif len(series) > num_periods:
+                    series = series[:num_periods]
+
+                print(f"  [DEBUG] {company}: len={len(series)} | {np.round(series, 2)}")
+
+                heatmap_data.append(series)
+                final_company_labels.append(company)
+
+            except Exception as e:
+                print(f"[ERROR] Failed for {company}: {e}")
+
+        if not heatmap_data:
+            print("[ERROR] No valid company data to plot.")
+            return None
+
+        heatmap_array = np.vstack(heatmap_data)
+
+        fig_height = max(5, len(final_company_labels) * 0.5)
+        fig, ax = plt.subplots(figsize=(30, fig_height))
+
+        cax = sns.heatmap(
+            heatmap_array,
+            cmap=cmap,
+            xticklabels=x_labels,
+            yticklabels=final_company_labels,
+            cbar=False,
+            linewidths=0,
+            ax=ax,
+            linecolor='none'
+        )
+
+        cbar = fig.colorbar(
+            cax.collections[0], ax=ax, orientation='vertical',
+            fraction=0.03, pad=0.04
+        )
+        cbar.ax.set_ylabel(header.upper(), fontsize=15, color="black", labelpad=25)
+        cbar.ax.tick_params(labelsize=18, colors="black")
+        cbar.outline.set_linewidth(2)
+
+        ax.set_xlabel("")
+        ax.set_ylabel("")
+        ax.tick_params(axis='x', labelsize=14, width=2, length=8, rotation=45)
+        ax.tick_params(axis='y', labelsize=14, width=2, length=8)
+
+        for spine in ax.spines.values():
+            spine.set_visible(True)
+            spine.set_linewidth(2)
+            spine.set_color("black")
+
+        plt.title(f"{header} Over Time", fontsize=24, color="black", pad=30)
+        plt.tight_layout(rect=[0.15, 0, 0.9, 1])
+
+        return fig
+
+    def plot_yearly_time_series_heatmaps2(self, yearly_data, yearly_labels,
+                                          headers, cmap="jet"):
+        """
+        Plots heatmaps for each header, visualizing company data over time.
+        """
+        max_years = 11  # Standardized number of years
+        x_labels = [str(int(year)) for year in yearly_labels['Sheet1']]
+
+        for idx, header in enumerate(headers):
+            print(f"Plotting heatmap for: {header}")
+
+            # Extract data for the header
+            header_data = []
+            company_labels = []
+            for company in self.companies:
+                if company in yearly_data:
+                    data = yearly_data[company][:, idx]
+                    company_labels.append(company)
+                else:
+                    data = np.zeros(max_years, dtype=int)
+
+                if data.shape[0] < max_years:
+                    padding = np.zeros((max_years - data.shape[0],), dtype=int)
+                    data = np.concatenate([data, padding])
+                elif data.shape[0] > max_years:
+                    data = data[:max_years]
+
+                header_data.append(data)
+
+            header_data = np.array(header_data, dtype=np.float64)
+
+            # Create an annotation array
+            annot_data = np.array([[
+                "{:.0f}".format(val) if val != 0 else "0" for val in row] for
+                row in header_data
+            ])
+
+            vmin, vmax = np.min(header_data), np.max(header_data)
+            if vmin == vmax:
+                vmin, vmax = 0, vmax + max(1, 0.1 * vmax)
+
+            # Plot the heatmap
+            # viridis, cividis, magma, plasma, coolwarm, RdBu, PuOr
+            fig, ax = plt.subplots(figsize=(30, 14))
+            cax = sns.heatmap(
+                header_data, cmap=cmap, xticklabels=x_labels,
+                yticklabels=company_labels,
+                cbar=False, linewidths=0, ax=ax, linecolor='none'
+            )
+
+            # Add a custom colorbar
+            cbar = fig.colorbar(
+                cax.collections[0], ax=ax, orientation='vertical', fraction=0.03, pad=0.04
+            )
+            cbar.ax.set_ylabel(
+                header.upper(), fontsize=22, fontweight='bold',
+                color="darkgreen", labelpad=25
+            )
+            cbar.ax.tick_params(labelsize=20, colors="darkgreen")
+            cbar.outline.set_linewidth(2)
+
+            # Remove x-axis and y-axis labels for a professional look
+            ax.set_xlabel("")
+            ax.set_ylabel("")
+
+            # Customize tick appearance
+            ax.tick_params(axis='x', which='both', labelsize=18, width=2, length=8)
+            ax.tick_params(axis='y', which='both', labelsize=18, width=2, length=8)
+
+            # Enhance plot boundaries
+            for spine in ax.spines.values():
+                spine.set_visible(True)
+                spine.set_linewidth(2)
+                spine.set_color("black")
+
+            plt.title(f"{header} Over Time", fontsize=24, fontweight='bold',
+                      color="black", pad=30)
+            plt.tight_layout(rect=[0.15, 0, 0.9, 1])  # Adjusted left padding to give space for labels
+
+            filename = f"heatmap_{header.replace(' ', '_').lower()}.png"
+            self._save_plot(filename, output_subdir="yearly_time_series_heatmaps")
+            plt.close()
+            print(f" Heatmap for '{header}' saved to '{filename}'")
+
     def plot_elbow(self, input_data, max_clusters=10):
         elbow = ElbowMethod(max_clusters)
         distortions = elbow.compute_inertia(input_data)
@@ -519,7 +783,7 @@ class Plotter:
         plt.tight_layout()
 
         # Save and display the plot
-        self._save_plot("elbow_method.pdf", output_subdir="evaluation")
+        self._save_plot("elbow_method.png", output_subdir="evaluation")
 
     def plot_silhouette_curve(self, input_data, max_clusters=12, metric="dtw"):
         silhouette_scores = []
@@ -565,7 +829,7 @@ class Plotter:
         plt.axhline(y=0, color='black', linewidth=1.2, linestyle='--')
 
         # Display plot and save with a high-quality resolution
-        self._save_plot("silhouette.pdf", output_subdir="evaluation")
+        self._save_plot("silhouette.png", output_subdir="evaluation")
 
     def plot_2d_dimension_reduction(self, company_names, method: str):
         """
@@ -597,7 +861,9 @@ class Plotter:
         num_clusters = len(np.unique(cluster_labels_adjusted))
 
         # Create a ListedColormap for the clusters
-        colors = ["darkgreen", "purple", 'red', 'cyan', 'darkgray', 'indigo']
+        # colors = ["darkgreen", "purple", 'red', 'cyan', 'darkgray', 'indigo']
+        n_clusters = len(np.unique(self.cluster_labels))
+        colors = plt.cm.tab10(np.linspace(0, 1, n_clusters))
         custom_cmap = ListedColormap(colors[:num_clusters])
 
         # Plot the points with the cluster labels as colors
@@ -763,11 +1029,13 @@ class Plotter:
             # Ensure there is at least one company in the cluster
             if cluster_data.shape[0] > 0:
                 # Assign a unique color for each company in the cluster
-                cluster_colors = [
-                    '#90EE90', '#00BFFF', '#FF00FF', '#000000', '#FFC0CB',
-                    '#FFD700', '#008080', '#FF0000', '#800080', '#40E0D0',
-                    '#ADD8E6', '#FFDAB9', '#E6E6FA', '#36454F', '#F5F5DC'
-                ]
+                # cluster_colors = [
+                #     '#90EE90', '#00BFFF', '#FF00FF', '#000000', '#FFC0CB',
+                #     '#FFD700', '#008080', '#FF0000', '#800080', '#40E0D0',
+                #     '#ADD8E6', '#FFDAB9', '#E6E6FA', '#36454F', '#F5F5DC'
+                # ]
+                num_companies = len(self.companies)
+                cluster_colors = sns.color_palette("husl", num_companies)
 
                 # Get the indices of companies in the current cluster
                 cluster_company_indices = np.where(self.cluster_labels == cluster_idx)[0]
@@ -851,7 +1119,7 @@ class Plotter:
             plt.gca().set_facecolor('#f9f9f9')  # Light background color
 
             # Save the plot for the individual cluster
-            plot_filename = f"cluster_{cluster_idx + 1}_time_series_with_insurers.pdf"
+            plot_filename = f"cluster_{cluster_idx + 1}_time_series_with_insurers.png"
             self._save_plot(plot_filename, output_subdir="time_series_clusters")
             print(f"Cluster {cluster_idx + 1} plot saved to {plot_filename}")
 
