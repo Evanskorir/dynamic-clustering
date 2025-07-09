@@ -18,7 +18,7 @@ class Plotter:
     def __init__(self, cluster_centers, time_series_data, data_scaled,
                  cluster_labels, companies, dtw_clustering, labels,
                  include_reinsurers, reduced_data=None, reconstructed_data=None,
-                 yearly_cols=None):
+                 yearly_cols=None, selected_range=None):
 
         self.cluster_centers = cluster_centers
         self.time_series_data = time_series_data
@@ -31,6 +31,8 @@ class Plotter:
         self.reconstructed_data = reconstructed_data
         self.include_reinsurers = include_reinsurers
         self.yearly_cols = yearly_cols
+
+        self.selected_range = selected_range
 
     @staticmethod
     def _create_output_dir(output_subdir=""):
@@ -139,8 +141,8 @@ class Plotter:
         # Center the ticks by offsetting by 0.5
         ax.set_xticks(np.arange(num_labels) + 0.5)
         ax.set_yticks(np.arange(num_labels) + 0.5)
-        ax.set_xticklabels(abbreviated_labels, fontsize=22, rotation=90, ha='right')
-        ax.set_yticklabels(abbreviated_labels, fontsize=22, ha="right")
+        ax.set_xticklabels(abbreviated_labels, fontsize=22, rotation=90, ha='center')
+        ax.set_yticklabels(abbreviated_labels, fontsize=22)
 
         # Customize tick size and thickness
         ax.tick_params(axis='x', which='both', labelsize=22, width=2.2, length=8)
@@ -155,24 +157,6 @@ class Plotter:
             spine.set_linewidth(2)
 
         plt.tight_layout(rect=[0, 0.05, 1, 1])
-
-    @staticmethod
-    def _style_plot2(ax, title):
-        """
-        Styles the heatmap plot with titles, labels, and tick parameters.
-        """
-
-        # Set fonts for tick labels
-        plt.xticks(fontsize=22, rotation=90, fontweight='bold')
-        plt.yticks(fontsize=22, rotation=0, fontweight='bold')
-
-        ax.tick_params(axis='x', which='both', labelsize=22, width=2.2, length=8)
-        ax.tick_params(axis='y', which='both', labelsize=22, width=2.2, length=8)
-
-        # Customize the plot boundaries
-        for spine in ax.spines.values():
-            spine.set_visible(True)
-            spine.set_linewidth(2)
 
     @staticmethod
     def _add_colorbar(fig, cax):
@@ -193,7 +177,8 @@ class Plotter:
         cbar.set_label('DTW Distance', fontsize=20, fontweight='bold',
                        color='darkgreen', labelpad=20)
 
-    def plot_hierarchical_dendrogram(self, linkage_matrix, threshold=None):
+    def plot_hierarchical_dendrogram(self, linkage_matrix, threshold=None,
+                                     selected_range=None):
         fig, ax = plt.subplots(figsize=(18, 10), dpi=300)
         cluster_colors = ['#1b9e77', '#d95f02', '#7570b3', '#e7298a',
                           '#66a61e', '#e6ab02', '#a6761d', '#666666',
@@ -314,7 +299,124 @@ class Plotter:
         plt.close()
         print(f"Time series heatmap saved to '{filename}'")
 
-    def plot_yearly_time_series_heatmaps(self, yearly_data, yearly_labels, headers, cmap="jet"):
+    def plot_quarterly_variable_heatmaps(self, quarterly_data, quarterly_labels,
+                                         column_names, selected_companies=None,
+                                         selected_range=None, cmap="jet"):
+        """
+        Plots heatmaps for each of the 4 quarterly variables (e.g., GPI, Claims Paid, etc.)
+        across all companies.
+        """
+
+        print("[INFO] Generating quarterly variable heatmaps...")
+
+        variable_indices = {name.strip().lower(): i for i, name in enumerate(column_names)}
+        variable_names = list(variable_indices.keys())
+
+        # Range control
+        if selected_range:
+            start, end = selected_range
+            quarter_labels = list(quarterly_labels[start:end + 1])
+            num_quarters = end - start + 1
+        else:
+            quarter_labels = list(quarterly_labels)
+            num_quarters = len(quarter_labels)
+
+        # Default to all companies if not provided
+        if selected_companies is None:
+            selected_companies = self.companies
+
+        for var in variable_names:
+            idx = variable_indices[var]
+            heatmap_data = []
+            valid_labels = []
+
+            for company in selected_companies:
+                if company not in quarterly_data:
+                    continue
+                data = quarterly_data[company]
+
+                # Handle dimensionality & missing values
+                if data.ndim != 2 or data.shape[1] <= idx:
+                    continue
+
+                series = data[:, idx]
+
+                if selected_range:
+                    if len(series) >= end + 1:
+                        series = series[start:end + 1]
+                    else:
+                        series = np.pad(series[start:], (0, end - len(series) + 1), constant_values=np.nan)
+                else:
+                    if len(series) < num_quarters:
+                        series = np.pad(series, (0, num_quarters - len(series)), constant_values=np.nan)
+                    elif len(series) > num_quarters:
+                        series = series[:num_quarters]
+
+                heatmap_data.append(series)
+                valid_labels.append(company)
+
+            if not heatmap_data:
+                print(f"[WARN] No data found for variable '{var}'.")
+                continue
+
+            heatmap_array = np.vstack(heatmap_data)
+
+            # Plot
+            fig_height = max(5, len(valid_labels) * 0.5)
+            fig, ax = plt.subplots(figsize=(30, fig_height))
+
+            cax = sns.heatmap(
+                heatmap_array,
+                cmap=cmap,
+                xticklabels=quarter_labels,
+                yticklabels=valid_labels,
+                cbar=False,
+                linewidths=0,
+                ax=ax,
+                linecolor='none'
+            )
+
+            cbar = fig.colorbar(
+                cax.collections[0], ax=ax, orientation='vertical',
+                fraction=0.03, pad=0.04
+            )
+            cbar.ax.set_ylabel(var.upper(), fontsize=15, color="black", labelpad=25)
+
+            # Apply scalar formatter for better tick visibility
+            formatter = ScalarFormatter()
+            formatter.set_powerlimits((6, 6))  # Forces 1e6 display
+            formatter.set_scientific(True)
+            formatter.set_useOffset(False)
+            cbar.ax.yaxis.set_major_formatter(formatter)
+
+            # Increase font size for the tick labels
+            cbar.ax.tick_params(labelsize=26, width=2)
+            cbar.outline.set_linewidth(2)
+
+            ax.set_xlabel("")
+            ax.set_ylabel("")
+            ax.tick_params(axis='x', labelsize=14, width=2, length=8, rotation=45)
+            ax.tick_params(axis='y', labelsize=14, width=2, length=8)
+
+            for spine in ax.spines.values():
+                spine.set_visible(True)
+                spine.set_linewidth(2)
+                spine.set_color("black")
+
+            plt.title(f"{var.title()} Over Time", fontsize=24, color="black", pad=30)
+            plt.tight_layout(rect=[0.15, 0, 0.9, 1])
+
+            # Save
+            output_dir = "./plots/quarterly_variable_heatmaps"
+            os.makedirs(output_dir, exist_ok=True)
+            filename = f"heatmap_{var.replace(' ', '_').lower()}.png"
+            path = os.path.join(output_dir, filename)
+            fig.savefig(path, dpi=300, bbox_inches="tight")
+            plt.close()
+            print(f"[SAVED] {path}")
+
+    def plot_yearly_time_series_heatmaps(self, yearly_data, yearly_labels,
+                                         headers, cmap="jet"):
         """
         Plots heatmaps for each selected yearly variable (header), showing company trends over years.
         """
@@ -391,86 +493,6 @@ class Plotter:
             plt.close()
             print(f"Heatmap for '{header}' saved to '{filename}'")
 
-    def plot_variable_split2(self, variable_index, variable_name):
-        """
-        Plots a heatmap for the variable across all companies.
-        Ensures a rectangular shape and centered tick labels.
-        """
-        # Prepare the data in dictionary format for all variables
-        variable_data = {
-            company: values[:, variable_index].astype(float)
-            for company, values in self.time_series_data.items()
-            if values.ndim == 2 and values.shape[1] > variable_index
-        }
-
-        # Determine companies to include
-        if self.include_reinsurers:
-            companies = list(variable_data.keys())[5:]  # Exclude the first 5 companies
-        else:
-            companies = list(variable_data.keys())  # Include all companies
-
-        # Gather data into a 2D array
-        heatmap_data = [variable_data[company] for company in companies]
-        heatmap_array = np.array(heatmap_data)
-
-        # Adjust aspect ratio for a more rectangular plot
-        aspect_ratio = len(heatmap_array[0]) / len(companies)  # Based on data dimensions
-        fig, ax = plt.subplots(figsize=(30, 14))  # Explicitly set a rectangular size
-
-        # Plot the heatmap without a default colorbar
-        cax = sns.heatmap(
-            heatmap_array,
-            cmap="jet",
-            xticklabels=False,
-            yticklabels=False,
-            cbar=False,  # Disable default colorbar
-            linewidths=0,  # Disable grid lines
-            ax=ax,
-            linecolor='none',
-        )
-
-        # Add a single custom colorbar at the far right
-        cbar = fig.colorbar(
-            cax.collections[0],
-            ax=ax,
-            orientation='vertical',
-            fraction=0.03,  # Adjust colorbar width
-            pad=0.04,
-            format='%d%%'
-        )
-        cbar.ax.set_ylabel(variable_name, fontsize=20, fontweight='bold',
-                           color="darkgreen", labelpad=20)
-        cbar.ax.tick_params(labelsize=20, colors="darkgreen")
-        cbar.outline.set_linewidth(1.5)
-
-        # Adjust x-axis labels to match quarterly time points and center them
-        num_time_points = heatmap_array.shape[1]
-        quarterly_labels = self.labels.get('Sheet1', [])
-        ax.set_xticks(np.arange(num_time_points) + 0.5)  # Center ticks
-        ax.set_xticklabels(quarterly_labels, rotation=90,
-                           fontsize=18, fontweight='bold', ha='center')
-
-        # Set y-axis ticks for companies and center them
-        ax.set_yticks(np.arange(len(companies)) + 0.5)
-        ax.set_yticklabels(companies, fontsize=18, fontweight='bold', va='center')
-
-        # Customize the tick size and thickness for both axes
-        ax.tick_params(axis='x', which='both', labelsize=18, width=2, length=8)
-        ax.tick_params(axis='y', which='both', labelsize=18, width=2, length=8)
-
-        # Customize the plot boundaries
-        for spine in ax.spines.values():
-            spine.set_visible(True)
-            spine.set_linewidth(2)  # Strong boundary lines
-
-        plt.tight_layout(rect=[0, 0, 0.9, 1])
-
-        # Save the plot
-        filename = f"heatmap_{variable_name.replace(' ', '_').lower()}.png"
-        self._save_plot(filename, output_subdir=f"heatmaps/{variable_name}")
-        plt.close()
-        print(f"Heatmap for '{variable_name}' saved to '{filename}'")
-
     def plot_variable_split(self, variable_index, variable_name):
         """
         Plots a heatmap for the variable across all companies.
@@ -546,16 +568,16 @@ class Plotter:
 
     def generate_yearly_heatmap_figure(self, yearly_data, quarterly_labels, header,
                                        cmap="jet", selected_companies=None,
-                                       column_names=None, use_quarterly_labels=True):
+                                       column_names=None,
+                                       use_quarterly_labels=True,
+                                       selected_range=None):
         """
         Generate a heatmap using either quarterly or yearly labels.
         Supports dynamic switching to use high-resolution quarterly labels.
         """
 
-        # === Normalize and lookup variable index ===
         header_clean = " ".join(header.strip().lower().split())
 
-        # Use passed column_names or fallback to self.yearly_cols
         columns = column_names if column_names else self.yearly_cols
         header_lookup = {col.strip().lower(): i for i, col in enumerate(columns)}
 
@@ -565,10 +587,16 @@ class Plotter:
 
         variable_index = header_lookup[header_clean]
 
-        # === Select Labels ===
         raw_labels = quarterly_labels if use_quarterly_labels else self.yearly_labels
-        x_labels = list(raw_labels)
-        num_periods = len(x_labels)
+
+        # ✅ Apply selected range to x-axis labels
+        if selected_range:
+            start, end = selected_range
+            x_labels = list(raw_labels[start:end + 1])
+            num_periods = end - start + 1
+        else:
+            x_labels = list(raw_labels)
+            num_periods = len(x_labels)
 
         if selected_companies is None:
             selected_companies = self.companies
@@ -599,12 +627,20 @@ class Plotter:
                 cleaned_array = np.array(cleaned_rows, dtype=np.float64)
                 series = cleaned_array[:, variable_index]
 
-                if len(series) < num_periods:
-                    series = np.pad(series, (0, num_periods - len(series)), constant_values=np.nan)
-                elif len(series) > num_periods:
-                    series = series[:num_periods]
+                # ✅ Apply range slicing
+                if selected_range:
+                    start, end = selected_range
+                    if len(series) >= end + 1:
+                        series = series[start:end + 1]
+                    else:
+                        series = np.pad(series[start:], (0, end - len(series) + 1), constant_values=np.nan)
+                else:
+                    if len(series) < num_periods:
+                        series = np.pad(series, (0, num_periods - len(series)), constant_values=np.nan)
+                    elif len(series) > num_periods:
+                        series = series[:num_periods]
 
-                print(f"  [DEBUG] {company}: len={len(series)} | {np.round(series, 2)}")
+                print(f"[DEBUG] {company}: len={len(series)} | {np.round(series, 2)}")
 
                 heatmap_data.append(series)
                 final_company_labels.append(company)
@@ -637,7 +673,7 @@ class Plotter:
             fraction=0.03, pad=0.04
         )
         cbar.ax.set_ylabel(header.upper(), fontsize=15, color="black", labelpad=25)
-        cbar.ax.tick_params(labelsize=18, colors="black")
+        cbar.ax.tick_params(labelsize=26, colors="black")
         cbar.outline.set_linewidth(2)
 
         ax.set_xlabel("")
@@ -655,92 +691,8 @@ class Plotter:
 
         return fig
 
-    def plot_yearly_time_series_heatmaps2(self, yearly_data, yearly_labels,
-                                          headers, cmap="jet"):
-        """
-        Plots heatmaps for each header, visualizing company data over time.
-        """
-        max_years = 11  # Standardized number of years
-        x_labels = [str(int(year)) for year in yearly_labels['Sheet1']]
-
-        for idx, header in enumerate(headers):
-            print(f"Plotting heatmap for: {header}")
-
-            # Extract data for the header
-            header_data = []
-            company_labels = []
-            for company in self.companies:
-                if company in yearly_data:
-                    data = yearly_data[company][:, idx]
-                    company_labels.append(company)
-                else:
-                    data = np.zeros(max_years, dtype=int)
-
-                if data.shape[0] < max_years:
-                    padding = np.zeros((max_years - data.shape[0],), dtype=int)
-                    data = np.concatenate([data, padding])
-                elif data.shape[0] > max_years:
-                    data = data[:max_years]
-
-                header_data.append(data)
-
-            header_data = np.array(header_data, dtype=np.float64)
-
-            # Create an annotation array
-            annot_data = np.array([[
-                "{:.0f}".format(val) if val != 0 else "0" for val in row] for
-                row in header_data
-            ])
-
-            vmin, vmax = np.min(header_data), np.max(header_data)
-            if vmin == vmax:
-                vmin, vmax = 0, vmax + max(1, 0.1 * vmax)
-
-            # Plot the heatmap
-            # viridis, cividis, magma, plasma, coolwarm, RdBu, PuOr
-            fig, ax = plt.subplots(figsize=(30, 14))
-            cax = sns.heatmap(
-                header_data, cmap=cmap, xticklabels=x_labels,
-                yticklabels=company_labels,
-                cbar=False, linewidths=0, ax=ax, linecolor='none'
-            )
-
-            # Add a custom colorbar
-            cbar = fig.colorbar(
-                cax.collections[0], ax=ax, orientation='vertical', fraction=0.03, pad=0.04
-            )
-            cbar.ax.set_ylabel(
-                header.upper(), fontsize=22, fontweight='bold',
-                color="darkgreen", labelpad=25
-            )
-            cbar.ax.tick_params(labelsize=20, colors="darkgreen")
-            cbar.outline.set_linewidth(2)
-
-            # Remove x-axis and y-axis labels for a professional look
-            ax.set_xlabel("")
-            ax.set_ylabel("")
-
-            # Customize tick appearance
-            ax.tick_params(axis='x', which='both', labelsize=18, width=2, length=8)
-            ax.tick_params(axis='y', which='both', labelsize=18, width=2, length=8)
-
-            # Enhance plot boundaries
-            for spine in ax.spines.values():
-                spine.set_visible(True)
-                spine.set_linewidth(2)
-                spine.set_color("black")
-
-            plt.title(f"{header} Over Time", fontsize=24, fontweight='bold',
-                      color="black", pad=30)
-            plt.tight_layout(rect=[0.15, 0, 0.9, 1])  # Adjusted left padding to give space for labels
-
-            filename = f"heatmap_{header.replace(' ', '_').lower()}.png"
-            self._save_plot(filename, output_subdir="yearly_time_series_heatmaps")
-            plt.close()
-            print(f" Heatmap for '{header}' saved to '{filename}'")
-
-    def plot_elbow(self, input_data, max_clusters=10):
-        elbow = ElbowMethod(max_clusters)
+    def plot_elbow(self, input_data, max_clusters=10, selected_range=None):
+        elbow = ElbowMethod(max_clusters, selected_range=selected_range)
         distortions = elbow.compute_inertia(input_data)
 
         # Visualization setup
@@ -749,7 +701,7 @@ class Plotter:
         # Plot smooth, continuous curve with markers
         plt.plot(range(1, max_clusters + 1), distortions, color='dodgerblue',
                  linewidth=2, marker='o', markersize=8,
-                 markerfacecolor='white', markeredgewidth=2, linestyle='-', alpha=0.9)  # Unfilled markers
+                 markerfacecolor='white', markeredgewidth=2, linestyle='-', alpha=0.9)
 
         # Title and labels with modern, readable fonts
         plt.xlabel("Number of Clusters", fontsize=20, fontweight='bold', labelpad=15)
@@ -783,19 +735,22 @@ class Plotter:
         plt.tight_layout()
 
         # Save and display the plot
-        self._save_plot("elbow_method.png", output_subdir="evaluation")
+        self._save_plot("elbow_method.pdf", output_subdir="evaluation")
 
-    def plot_silhouette_curve(self, input_data, max_clusters=12, metric="dtw"):
+    def plot_silhouette_curve(self, input_data, max_clusters=12,
+                              metric="dtw", selected_range=None):
         silhouette_scores = []
         clusters_range = range(2, max_clusters + 1)
 
         # Compute silhouette scores for each number of clusters
         for n_clusters in clusters_range:
-            self.dtw_clustering.perform_clustering(n_clusters=n_clusters)
+            self.dtw_clustering.perform_clustering(n_clusters=n_clusters,
+                                                   selected_range=selected_range)
             cluster_labels = self.dtw_clustering.get_cluster_assignments()
             evaluation = ClusteringEvaluation(input_data=input_data,
                                               cluster_labels=cluster_labels,
-                                              distance_metric=metric)
+                                              distance_metric=metric,
+                                              selected_range=selected_range)
             silhouette_scores.append(evaluation.evaluate_clustering())
 
         # Visualization setup
@@ -829,7 +784,7 @@ class Plotter:
         plt.axhline(y=0, color='black', linewidth=1.2, linestyle='--')
 
         # Display plot and save with a high-quality resolution
-        self._save_plot("silhouette.png", output_subdir="evaluation")
+        self._save_plot("silhouette.pdf", output_subdir="evaluation")
 
     def plot_2d_dimension_reduction(self, company_names, method: str):
         """
@@ -1010,7 +965,106 @@ class Plotter:
         for i in range(len(y) - 1):
             ax.fill_between(x[i:i + 2], y[i:i + 2], color=cmap(z[i]), alpha=alpha)
 
-    def plot_cluster_scatter(self, approach):
+    def plot_cluster_scatter(self, approach, selected_range):
+        """
+        Visualize time series clusters in separate scatter plots for each cluster,
+        showing only the cluster centers with their gradient fills and members.
+        """
+        # Slice data if selected_range is provided
+        if selected_range:
+            start, end = selected_range
+            reduced_data = self.reduced_data[:, start:end + 1, :]
+            cluster_centers = self.cluster_centers[:, start:end + 1, :]
+            time_labels = self.labels['Sheet1'][start:end + 1]
+        else:
+            reduced_data = self.reduced_data
+            cluster_centers = self.cluster_centers
+            time_labels = self.labels['Sheet1']
+
+        n_clusters = cluster_centers.shape[0]
+        color_palette = sns.color_palette("husl", n_clusters)
+        num_companies = len(self.companies)
+        company_colors = sns.color_palette("husl", num_companies)
+
+        for cluster_idx in range(n_clusters):
+            plt.figure(figsize=(30, 10))
+
+            cluster_data = reduced_data[self.cluster_labels == cluster_idx]
+            cluster_company_indices = np.where(self.cluster_labels == cluster_idx)[0]
+
+            legend_proxies = []
+            legend_labels = []
+
+            for idx, company_idx in enumerate(cluster_company_indices):
+                ts = reduced_data[company_idx]
+                company_name = self.companies[company_idx]
+
+                if approach == "lstm":
+                    plt.plot(ts, color=company_colors[idx], alpha=0.7, linewidth=1.5)
+                    plt.scatter(np.arange(len(ts)), ts,
+                                color=company_colors[idx], edgecolor='black',
+                                s=150, zorder=5, linewidths=2)
+                else:
+                    plt.plot(ts[:, 0], color=company_colors[idx], alpha=0.7, linewidth=1.5)
+                    plt.scatter(np.arange(len(ts[:, 0])), ts[:, 0],
+                                color=company_colors[idx], edgecolor='black',
+                                s=150, zorder=5, linewidths=2)
+
+                proxy = plt.Line2D([0], [0], marker='o', color='w',
+                                   markerfacecolor=company_colors[idx],
+                                   markersize=np.sqrt(400), markeredgecolor='black',
+                                   markeredgewidth=2)
+                legend_proxies.append(proxy)
+                legend_labels.append(company_name)
+
+            center = cluster_centers[cluster_idx]
+            if center.ndim > 1:
+                center = center[:, 0]  # Use first feature if multi-dimensional
+
+            time_steps = np.arange(len(center))
+            smooth_time = np.linspace(0, len(center) - 1, 500)
+            smooth_center = make_interp_spline(time_steps, center, k=3)(smooth_time)
+
+            plt.plot(smooth_time, smooth_center,
+                     color=color_palette[cluster_idx], linewidth=3,
+                     label=f"Cluster {cluster_idx + 1} Center")
+
+            self.gradient_fill(plt.gca(), smooth_time, smooth_center,
+                               color=color_palette[cluster_idx])
+
+            plt.scatter(time_steps, center, color=color_palette[cluster_idx],
+                        edgecolor='black', s=150, zorder=5, linewidths=2)
+
+            plt.legend(handles=legend_proxies, labels=legend_labels, loc='upper center',
+                       bbox_to_anchor=(0.5, -0.25), fontsize=25, fancybox=True, frameon=True,
+                       facecolor='#f0f0f0', framealpha=0.9, edgecolor='gray', ncol=4)
+
+            plt.title(f"Cluster {cluster_idx + 1} Trends", fontsize=28, fontweight='bold', pad=20)
+            plt.xlabel("Time Steps", fontsize=25, fontweight='bold')
+            plt.ylabel("Value", fontsize=25, fontweight='bold')
+
+            plt.ylim(bottom=None, top=None)
+            plt.yticks(fontsize=22)
+            plt.xlim(left=None)
+            plt.xticks(ticks=np.arange(len(time_labels)),
+                       labels=time_labels,
+                       rotation=45, fontsize=18)
+
+            ax = plt.gca()
+            ax.spines['top'].set_visible(False)
+            ax.spines['right'].set_visible(False)
+            ax.spines['left'].set_linewidth(1.2)
+            ax.spines['bottom'].set_linewidth(1.2)
+            ax.set_facecolor('#f9f9f9')
+
+            os.makedirs("plots/time_series_clusters", exist_ok=True)
+            filename = f"plots/time_series_clusters/" \
+                       f"cluster_{cluster_idx + 1}_time_series_with_insurers.pdf"
+            plt.savefig(filename, bbox_inches="tight")
+            plt.close()
+            print(f"Cluster {cluster_idx + 1} plot saved to {filename}")
+
+    def plot_cluster_scatter2(self, approach, selected_range):
         """
         Visualize time series clusters in separate scatter plots for each cluster,
         showing only the cluster centers with their gradient fills and members.

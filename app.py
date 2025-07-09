@@ -110,17 +110,25 @@ if controller:
     all_companies = list(quarterly_data.keys())
 
     st.sidebar.markdown("### Data Selection")
+    # ✅ Step 1: Select Companies
     selected_companies = st.sidebar.multiselect("Select Companies",
                                                 all_companies, default=all_companies[:5])
-    selected_variables = st.sidebar.multiselect("Select Ratios",
-                                                variable_names, default=["Market Share"])
-    selected_time_series_variables = st.sidebar.multiselect(
-        "Select Time Series Variables", variable_time_series,
-        default=["Gross Premium Income"])
+
+    # ✅ Step 2: Select Quarter Range
     selected_range = st.sidebar.slider("Select Quarter Range", 0,
                                        len(quarterly_labels) - 1,
                                        (0, len(quarterly_labels) - 1))
     selected_quarters = quarterly_labels[selected_range[0]:selected_range[1] + 1]
+
+    # ✅ Step 3: Select Time Series Variables
+    selected_time_series_variables = st.sidebar.multiselect(
+        "Select Time Series Variables", variable_time_series,
+        default=["Gross Premium Income"])
+
+    # ✅ Step 4: Select Ratios
+    selected_variables = st.sidebar.multiselect("Select Ratios",
+                                                variable_names,
+                                                default=["Market Share"])
 
     summary_var = selected_variables[0] if \
         selected_variables else variable_names[0]
@@ -188,8 +196,10 @@ if controller:
             cmap=selected_cmap,
             selected_companies=selected_companies,
             use_quarterly_labels=True,
-            column_names=quarterly_cols
+            column_names=quarterly_cols,
+            selected_range=selected_range
         )
+
         if fig:
             st.markdown(f"#### {header}")
             st.pyplot(fig)
@@ -221,10 +231,57 @@ if controller:
         st.pyplot(fig)
 
     # ===============================
-    # 📈 Variable Trends
+    # 📈 Variable Trends Over Time
     # ===============================
     st.markdown("## 📈 Variable Trends Over Time")
+
+    # Use the correct ratio-based dataset
+    quarterly_ratio_data = controller.ratios_data.ratios_data
+
     col_heatmap, col_ranking = st.columns([5.5, 1.5])
+    with col_heatmap:
+        for var in selected_variables:
+            st.markdown(f"#### {var}")
+            var_idx = variable_index.get(var)
+
+            heatmap_data = []
+
+            for company in selected_companies:
+                if company in quarterly_ratio_data:
+                    company_data = quarterly_ratio_data[company]
+
+                    # Safe check for dimensions
+                    if var_idx < company_data.shape[1]:
+                        series = company_data[selected_range[0]:
+                                              selected_range[1] + 1, var_idx]
+                    else:
+                        # Fallback: column index doesn't exist
+                        series = np.zeros(len(selected_quarters))
+                else:
+                    # Fallback: company not in dataset
+                    series = np.zeros(len(selected_quarters))
+
+                heatmap_data.append(series)
+
+            heatmap_array = np.array(heatmap_data)
+
+            fig, ax = plt.subplots(
+                figsize=(max(10, len(selected_quarters) * 0.4),
+                         len(selected_companies) * 0.4 + 1.5)
+            )
+            sns.heatmap(
+                heatmap_array,
+                annot=False,
+                cmap=selected_cmap,
+                xticklabels=selected_quarters,
+                yticklabels=selected_companies,
+                cbar_kws={'label': var},
+                ax=ax
+            )
+            ax.set_xlabel("Quarter")
+            ax.set_ylabel("Company")
+            ax.tick_params(axis='x', rotation=45)
+            st.pyplot(fig)
 
     # ===============================
     # 📊 Evaluation Curves
@@ -261,7 +318,8 @@ if controller:
         cluster_plot_path = f"./plots/time_series_clusters/" \
                             f"cluster_{cluster_index + 1}_time_series_with_insurers.png"
 
-        plotter.plot_cluster_scatter(approach=reduction_method)
+        plotter.plot_cluster_scatter(approach=reduction_method,
+                                     selected_range=selected_range)
         if os.path.exists(cluster_plot_path):
             st.image(cluster_plot_path, use_container_width=True)
         else:

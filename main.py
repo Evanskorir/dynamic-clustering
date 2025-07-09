@@ -4,7 +4,7 @@ from src.ratios import InsuranceRatios
 
 
 def main():
-    include_reinsurers = True
+    include_reinsurers = False
     reduction_method = "pca"
     n_clusters = 4
     data = DataLoader(include_reinsurers=include_reinsurers)

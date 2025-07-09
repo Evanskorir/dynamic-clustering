@@ -110,22 +110,25 @@ class InsuranceAnalysisController:
             error_reconstruction.calculate_reconstruction_error()
         print("Reconstruction data and errors saved successfully.")
 
-    def get_pairwise_distance(self, option: str = "pairwise"):
+    def get_pairwise_distance(self, option: str = "pairwise", selected_range=None):
         print("Calculating and plotting pairwise distance...")
         dist_mtx = RatiosPairwiseDistance(
-            reduced_time_series_data=self.reduced_time_series_data)
+            reduced_time_series_data=self.reduced_time_series_data,
+            selected_range=selected_range
+        )
         if option == "pairwise":
             self.distance_mtx = dist_mtx.distance_matrix
         else:
             self.distance_mtx = dist_mtx.ratio_distance_matrices
 
-    def perform_clustering(self, n_clusters):
+    def perform_clustering(self, n_clusters, selected_range=None):
         print(f"Performing KMeans clustering on reduced data...")
         dtw_cluster = DTWClustering(
             reduced_time_series_data=self.reduced_time_series_data,
-            random_seed=42
+            random_seed=42,
+            approach=self.reduction_method
         )
-        dtw_cluster.perform_clustering(n_clusters=n_clusters)
+        dtw_cluster.perform_clustering(n_clusters=n_clusters, selected_range=selected_range)
         self.dtw_cluster = dtw_cluster
         self.clusters = dtw_cluster.get_cluster_assignments()
 
@@ -137,10 +140,11 @@ class InsuranceAnalysisController:
             print(f"Cluster {cluster}: {members}")
 
         # hierarchical clustering
-        dtw_cluster.perform_hierarchical_clustering()
+        dtw_cluster.perform_hierarchical_clustering(selected_range=selected_range)
         linkage_matrix = dtw_cluster.linkage_matrix
         threshold = self.get_cluster_threshold_from_linkage(linkage_matrix, n_clusters)
-        dtw_cluster.perform_hierarchical_clustering(threshold=threshold)
+        dtw_cluster.perform_hierarchical_clustering(threshold=threshold,
+                                                    selected_range=selected_range)
 
         self.linkage_matrix = dtw_cluster.linkage_matrix
 
@@ -159,24 +163,26 @@ class InsuranceAnalysisController:
         sorted_distances = np.sort(distances)[::-1]
         return sorted_distances[n_clusters - 1]
 
-    def get_evaluation_plot(self, evaluation_criteria):
-        # Map evaluation criteria to the corresponding plotter methods
+    def get_evaluation_plot(self, evaluation_criteria, selected_range=None):
         evaluation_methods = {
             "silhouette": lambda: self.plotter.plot_silhouette_curve(
                 input_data=self.reduced_time_series_data,
                 max_clusters=12,
-                metric="dtw"
+                metric="dtw",
+                selected_range=selected_range
             ),
             "elbow": lambda: self.plotter.plot_elbow(
                 input_data=self.reduced_time_series_data,
-                max_clusters=12)
+                max_clusters=12,
+                selected_range=selected_range
+            )
         }
 
         plot_method = evaluation_methods.get(evaluation_criteria)
         if plot_method:
             plot_method()
 
-    def initialize_plotter(self, reduction_method):
+    def initialize_plotter(self, reduction_method, selected_range):
         print("Initializing Plotter...")
         cluster_centers = self.dtw_cluster.get_cluster_centers()
         self.plotter = Plotter(
@@ -190,21 +196,36 @@ class InsuranceAnalysisController:
             reconstructed_data=self.reconstructed_data,
             labels=self.labels,
             include_reinsurers=self.include_reinsurers,
-            yearly_cols=self.yearly_cols
+            yearly_cols=self.yearly_cols,
+            selected_range=selected_range
         )
         self.plotter.plot_distance_matrix(distance_matrix=self.distance_mtx)
-        self.plotter.plot_cluster_scatter(approach=reduction_method)
+
+        quarterly_labels = self.labels["Sheet1"]
+        self.plotter.plot_quarterly_variable_heatmaps(
+            quarterly_data=self.data_loader.data,
+            quarterly_labels=quarterly_labels,
+            column_names=["Gross Premium Income", "Claims Paid", "Claims Incurred",
+                          "Underwriting Profit"],
+            selected_companies=self.companies,
+            selected_range=selected_range,
+            cmap="Reds"
+        )
+
+        self.plotter.plot_cluster_scatter(approach=reduction_method,
+                                          selected_range=selected_range)
         self.plotter.plot_reconstruction_error(
             reconstruction_errors=self.reconstruction_errors)
 
         if self.reduction_method == "autoencoder":
             threshold = 2.0
         elif self.reduction_method == "pca":
-            threshold = 30.0
+            threshold = 26.0
         else:
             threshold = 5.0
         self.plotter.plot_hierarchical_dendrogram(linkage_matrix=self.linkage_matrix,
-                                                  threshold=threshold)
+                                                  threshold=threshold,
+                                                  selected_range=selected_range)
 
     def plot_variables(self, approach):
         print("Plotting variables...")
@@ -223,7 +244,7 @@ class InsuranceAnalysisController:
                                              yearly_labels=self.yearly_labels,
                                              headers=self.yearly_cols)
 
-    def run_analysis(self, reduction_method, n_clusters):
+    def run_analysis(self, reduction_method, n_clusters, selected_range=None):
         # Step 1: Load and Scale Data
         self.load_data()
         self.scale_the_data()
@@ -233,30 +254,32 @@ class InsuranceAnalysisController:
         self.apply_dimensionality_reduction(method=reduction_method)
 
         # Step 3: Compute Pairwise Distance
-        self.get_pairwise_distance()
+        self.get_pairwise_distance(selected_range=selected_range)
 
         # Step 4: Perform Clustering
-        self.perform_clustering(n_clusters=n_clusters)
+        self.perform_clustering(n_clusters=n_clusters,
+                                selected_range=selected_range)
 
         # Step 5: Initialize Plotter
-        self.initialize_plotter(reduction_method=reduction_method)
-        # Visualize the Variables (Financial ratios)
+        self.initialize_plotter(reduction_method=reduction_method,
+                                selected_range=selected_range)
+
+        # Step 6: Visualize the Variables (Financial ratios)
         self.plot_variables(approach=reduction_method)
 
-        # Step 6: Get Evaluation Plot
-        self.get_evaluation_plot(evaluation_criteria="elbow")
+        # Step 7: Evaluation Plot
+        self.get_evaluation_plot(evaluation_criteria="silhouette",
+                                 selected_range=selected_range)
 
-        # Step 7 & 8: Plot 2D Dimensionality Reduction and Autoencoder-Specific Actions
+        # Step 8: Dimensionality Reduction & Autoencoder
         if reduction_method in ["autoencoder", "pca"]:
-            self.plotter.plot_2d_dimension_reduction(company_names=self.companies,
-                                                     method=reduction_method)
-
+            self.plotter.plot_2d_dimension_reduction(
+                company_names=self.companies,
+                method=reduction_method
+            )
             if reduction_method == "autoencoder":
                 self.save_reconstruction_data()
                 self.plotter.plot_reconstruction_error(
-                    reconstruction_errors=self.reconstruction_errors)
-
-
-
-
+                    reconstruction_errors=self.reconstruction_errors
+                )
 
